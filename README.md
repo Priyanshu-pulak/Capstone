@@ -1,39 +1,84 @@
 # VidQuery
 
-VidQuery is a full-stack YouTube learning assistant with a FastAPI backend and a Vite + React frontend. It lets you process YouTube videos, chat with their transcripts, compare ideas across multiple videos, generate quizzes, view perspective-based summaries, and explore concept graphs.
+VidQuery is a full-stack YouTube learning assistant. It combines a FastAPI backend, a React + Vite frontend, Gemini-powered analysis, LangChain retrieval chains, and local FAISS indexes so you can turn YouTube transcripts into a searchable study workspace.
 
-## Features
+## What It Does
 
-- FastAPI backend for transcript processing, querying, auth, and video history
-- React frontend for an interactive chat-style experience
-- YouTube transcript extraction and caching
-- Single-video Q&A and cross-video querying
-- Quiz generation in MCQ or short-answer format
-- Perspective summaries for student, developer, business, and beginner/expert views
-- Concept graph generation for key ideas and dependencies
-- Modular LangChain-based backend components for retrieval and summarization
-- Local FAISS index storage under `backend/local_indexes/`
+- Process a YouTube video and fetch its transcript
+- Ask questions about a single video through a LangChain agent
+- Compare ideas across multiple processed videos
+- Generate MCQ or short-answer quizzes
+- Create multi-perspective summaries
+- Visualize a concept dependency map
+- Persist user accounts and per-user video history
+
+## Current Architecture
+
+### Backend
+
+- `FastAPI` serves auth, video processing, querying, quiz, summary, and concept graph endpoints
+- `LangChain + LangGraph` power the single-video chat flow
+- `Google Gemini` is used for chat, summarization, quiz generation, perspectives, and concept graphs
+- `FAISS` stores per-video local indexes under `backend/local_indexes/`
+- `SQLModel + SQLite` persist users, video history, and saved summary text
+- `youtube-transcript-api` fetches transcripts directly from YouTube
+
+### Frontend
+
+- `React 18 + Vite + TypeScript`
+- Component-based UI refactor with dedicated panels for chat, quiz, perspectives, and concept maps
+- `Axios` API client with JWT token injection
+- `Framer Motion`, `lucide-react`, `clsx`, and `tailwind-merge` for UI behavior/styling
+
+## How The App Works
+
+### Single-video chat
+
+1. The frontend sends `POST /process` with a YouTube URL.
+2. The backend fetches the transcript, caches it in memory, and stores the video in user history.
+3. On `POST /query`, the backend builds a LangChain chatbot flow:
+   - transcript is split into chunks
+   - QA and summary FAISS indexes are loaded or created
+   - a Gemini-backed agent chooses between transcript search and summary tools
+4. The final answer is returned to the chat UI.
+
+### Cross-video and generation features
+
+- `POST /query/cross` combines cached transcripts from selected videos and asks Gemini directly
+- `POST /quiz` generates structured quiz JSON from the transcript
+- `POST /summary/perspectives` generates student, developer, business, and beginner/expert views
+- `POST /concept-graph` returns graph JSON for the concept map UI
+
+## Tech Stack
+
+- Backend: FastAPI, SQLModel, LangChain, LangGraph, FAISS, Google Generative AI, YouTube Transcript API
+- Frontend: React, Vite, TypeScript, Axios, Framer Motion
+- Persistence: SQLite, local FAISS index folders, browser `localStorage`
 
 ## Requirements
 
-- Python 3.13+
-- Node.js 18+ and npm
-- A Google AI API key
+- Python `3.13+`
+- Node.js `18+`
+- npm
+- A valid Google AI API key
 
 ## Environment Variables
 
-Create a `.env` file in `backend/` before starting the backend.
+Create `backend/.env`:
 
 ```env
 GOOGLE_API_KEY=your_google_api_key
 SECRET_KEY=your_secret_key_here
 ```
 
-`SECRET_KEY` is optional in development. If omitted, the backend uses a default fallback value.
+Notes:
 
-## Running the Project
+- `GOOGLE_API_KEY` is required
+- `SECRET_KEY` is optional for local development, but you should set it in any real deployment
 
-### Backend
+## Getting Started
+
+### 1. Start the backend
 
 Using `uv`:
 
@@ -53,9 +98,9 @@ pip install -e .
 uvicorn main:app --reload
 ```
 
-The backend starts on `http://localhost:8000`.
+Backend runs at `http://127.0.0.1:8000`.
 
-### Frontend
+### 2. Start the frontend
 
 ```bash
 cd frontend
@@ -63,29 +108,27 @@ npm install
 npm run dev
 ```
 
-The frontend runs on Vite's default dev server and proxies `/api` requests to `http://localhost:8000`.
+Frontend runs on Vite's dev server, normally `http://127.0.0.1:5173`.
+
+The frontend proxies `/api/*` requests to the FastAPI backend through `frontend/vite.config.ts`.
 
 ## Project Structure
 
 ```text
 VidQuery/
-├── package.json
 ├── README.md
-├── .gitignore
+├── package.json
 ├── backend/
 │   ├── main.py
 │   ├── pyproject.toml
+│   ├── uv.lock
+│   ├── vidquery.db
 │   ├── legacy/
 │   │   ├── link.txt
 │   │   └── main_legacy.py
 │   ├── local_indexes/
-│   │   ├── Gl7VxhxV9Dg_qa/
-│   │   ├── Gl7VxhxV9Dg_summary/
-│   │   └── ... (additional FAISS index folders)
+│   │   └── <video_id>_{qa,summary}/
 │   ├── src/
-│   │   ├── __init__.py
-│   │   ├── utils.py
-│   │   ├── youtube_chatbot.py
 │   │   ├── chain/
 │   │   │   ├── agent.py
 │   │   │   ├── chatbot_chain.py
@@ -97,60 +140,117 @@ VidQuery/
 │   │   │   └── prompt.py
 │   │   ├── schema/
 │   │   │   └── query_category.py
-│   │   └── vector_stores/
-│   │       ├── qa_vector_store.py
-│   │       └── summary_vector_store.py
+│   │   ├── vector_stores/
+│   │   │   ├── qa_vector_store.py
+│   │   │   └── summary_vector_store.py
+│   │   ├── utils.py
+│   │   └── youtube_chatbot.py
 │   └── tests/
-│       ├── test_fastapi.py
-│       ├── test_gemini_api.py
-│       ├── test_process.py
-│       └── test_write.py
-└── frontend/
-    ├── index.html
-    ├── package.json
-    ├── postcss.config.js
-    ├── tailwind.config.js
-    ├── tsconfig.json
-    ├── vite.config.ts
-    └── src/
-        ├── App.tsx
-        ├── index.css
-        └── main.tsx
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tailwind.config.js
+│   └── src/
+│       ├── App.tsx
+│       ├── api.ts
+│       ├── index.css
+│       ├── main.tsx
+│       └── components/
+│           ├── AuthPage.tsx
+│           ├── ChatPanel.tsx
+│           ├── ConceptMapPanel.tsx
+│           ├── PerspectivesPanel.tsx
+│           ├── QuizPanel.tsx
+│           └── Sidebar.tsx
+└── .gitignore
 ```
 
-## Backend Overview
+## Key Files
 
-- `backend/main.py`: FastAPI app with auth, history, transcript processing, querying, quiz generation, summaries, and concept graph endpoints
-- `backend/src/utils.py`: transcript fetching, video ID parsing, and transcript chunking helpers
-- `backend/src/chain/`: modular LangChain orchestration for question answering and summarization
-- `backend/src/vector_stores/`: FAISS index creation and loading for transcript and summary retrieval
-- `backend/src/database/models.py`: SQLite models and persistence helpers
-- `backend/local_indexes/`: generated local vector indexes for processed videos
+### Backend
 
-## Frontend Overview
+- `backend/main.py`: FastAPI entrypoint, auth, history, processing, query, quiz, summary, concept map, and delete routes
+- `backend/src/chain/chatbot_chain.py`: builds the Gemini + LangChain single-video chatbot flow
+- `backend/src/chain/agent.py`: defines the tool-using agent for transcript search and summary retrieval
+- `backend/src/vector_stores/qa_vector_store.py`: loads or builds QA FAISS indexes
+- `backend/src/vector_stores/summary_vector_store.py`: loads or builds summary FAISS indexes and saves summary text
+- `backend/src/database/models.py`: SQLModel tables and SQLite engine setup
+- `backend/src/utils.py`: YouTube ID parsing, transcript fetching, and transcript chunking
 
-- `frontend/src/App.tsx`: main application UI, authentication flow, chat, quiz, perspectives, and concept graph views
-- `frontend/src/main.tsx`: React entry point
-- `frontend/src/index.css`: global styling
-- `frontend/vite.config.ts`: Vite config with `/api` proxy to the backend
+### Frontend
 
-## API Highlights
+- `frontend/src/App.tsx`: main app shell, auth gating, mode switching, selected-video state, and orchestration
+- `frontend/src/api.ts`: Axios instance with JWT auth header injection
+- `frontend/src/components/AuthPage.tsx`: login/signup screen
+- `frontend/src/components/Sidebar.tsx`: video list and add/remove UI
+- `frontend/src/components/ChatPanel.tsx`: reusable chat panel for single-video and cross-video modes
+- `frontend/src/components/QuizPanel.tsx`: quiz generation UI
+- `frontend/src/components/PerspectivesPanel.tsx`: multi-perspective summary UI
+- `frontend/src/components/ConceptMapPanel.tsx`: concept dependency map UI
+
+## API Overview
+
+### Auth
 
 - `POST /auth/register`
 - `POST /auth/login`
 - `GET /auth/me`
+
+### Videos and history
+
 - `GET /history`
 - `POST /process`
 - `GET /videos`
+- `POST /videos/delete`
+
+### Queries and analysis
+
 - `POST /query`
 - `POST /query/cross`
 - `POST /quiz`
 - `POST /summary/perspectives`
 - `POST /concept-graph`
-- `POST /videos/delete`
 
-## Notes
+## Persistence and Generated Data
 
-- `backend/local_indexes/` contains generated FAISS data and is ignored by git.
-- The `backend/legacy/` directory keeps older entrypoint code for reference.
-- The files in `backend/tests/` currently act more like smoke scripts than a full automated test suite.
+- User accounts, video history, and saved summaries live in `backend/vidquery.db`
+- Generated FAISS indexes are written to `backend/local_indexes/`
+- JWT auth state is stored in browser `localStorage`
+- The backend also keeps an in-memory transcript cache while the server is running
+
+## Development Notes
+
+- `backend/legacy/` keeps older prototype code for reference
+- `backend/tests/` currently looks closer to smoke/integration scripts than a full automated test suite
+- `backend/local_indexes/` is gitignored because it is generated locally
+
+## Troubleshooting
+
+### Gemini 429 / rate limit errors
+
+The app uses Gemini heavily, especially for chat, quizzes, perspectives, and concept maps. On free-tier quotas you may hit `429 RESOURCE_EXHAUSTED`.
+
+What to do:
+
+- wait and retry after the cooldown window
+- reduce repeated requests while testing
+- check your Google AI quota and billing setup
+
+### Video has no transcript
+
+If YouTube transcripts are disabled or unavailable, processing will fail because transcript retrieval is required for most features.
+
+### Frontend cannot reach backend
+
+Make sure:
+
+- backend is running on `127.0.0.1:8000`
+- frontend is running through Vite
+- requests are going through `/api` so the proxy in `frontend/vite.config.ts` is used
+
+## Future Cleanup Opportunities
+
+- move remaining mode-specific logic out of `App.tsx`
+- improve error handling in the frontend for backend rate-limit responses
+- add a more complete automated test suite
+- replace older root-level helper scripts with scripts that match the current refactored layout
