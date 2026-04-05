@@ -1,0 +1,3 @@
+https://www.youtube.com/watch?v=LZz03myFuWA
+
+killall node python3 && npm run dev

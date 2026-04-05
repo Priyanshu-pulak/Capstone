@@ -1,0 +1,15 @@
+{
+  "name": "vidquery-root",
+  "version": "1.0.0",
+  "description": "Unified VidQuery project",
+  "main": "index.js",
+  "scripts": {
+    "install:all": "npm install && cd frontend && npm install",
+    "dev:backend": "source .venv-mac/bin/activate && python server.py",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
+  },
+  "dependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
