@@ -2,12 +2,12 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 
-from backend.src.utils import fetch_transcript, split_transcript, get_video_id
-from backend.src.vector_stores import build_qa_vector_store, build_summary_vector_store
-from backend.src.chain.qa_chain import build_qa_chain
-from backend.src.chain.summary_chain import build_summary_chain
-from backend.src.chain.agent import build_agent
-from backend.src.database.models import create_db_and_tables
+from src.utils import fetch_transcript, split_transcript, get_video_id
+from src.vector_stores import build_qa_vector_store, build_summary_vector_store
+from src.chain.qa_chain import build_qa_chain
+from src.chain.summary_chain import build_summary_chain
+from src.chain.agent import build_agent
+from src.database.models import create_db_and_tables
 
 def build_chatbot_chain(video_url: str):
     load_dotenv()

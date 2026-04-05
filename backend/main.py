@@ -1,24 +1,29 @@
+from pydantic import BaseModel, Field, EmailStr
+from typing import Annotated
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
 import os, json, re
-from typing import Optional, Union, Dict, List
+from typing import Optional
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
-
-load_dotenv()
+import logging
+from datetime import datetime, timedelta, UTC
+from src.chain import build_chatbot_chain
 
 import google.generativeai as genai
 from src.utils import fetch_transcript, get_video_id
 from src.database.models import (
-    create_db_and_tables, User, VideoHistory,
-    engine, Session, select
+    create_db_and_tables,
+    User,
+    VideoHistory,
+    engine,
+    Session,
+    select,
 )
-
-# Auth libraries
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+
+load_dotenv()
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
@@ -30,67 +35,112 @@ pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 app = FastAPI(title="VidQuery API")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # In-memory transcript cache
 video_transcripts: dict[str, str] = {}
 video_meta: dict[str, dict] = {}
 
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+
 # ── Pydantic models ───────────────────────────────────────────────────────────
 class VideoProcessRequest(BaseModel):
-    video_url: str
+    video_url: Annotated[str, Field(..., description="Full URL of the YouTube video")]
+
 
 class QueryRequest(BaseModel):
-    video_url: str
-    question: str
+    video_url: Annotated[str, Field(..., description="Full URL of the YouTube video")]
+    question: Annotated[
+        str,
+        Field(..., min_length=2, description="The user's query regarding the video"),
+    ]
+
 
 class CrossVideoQueryRequest(BaseModel):
-    question: str
-    video_urls: Optional[List[str]] = None
+    question: Annotated[str, Field(..., min_length=2)]
+    video_urls: Annotated[
+        list[str] | None,
+        Field(
+            default=None, description="Specific videos to query. If None, queries all."
+        ),
+    ]
+
 
 class QuizRequest(BaseModel):
-    video_url: str
-    num_questions: int = 5
-    quiz_type: str = "mcq"
+    video_url: Annotated[str, Field(...)]
+    num_questions: Annotated[
+        int,
+        Field(default=5, ge=1, le=20, description="Number of questions to generate"),
+    ]
+    quiz_type: Annotated[str, Field(default="mcq", pattern="^(mcq|short)$")]
+
 
 class PerspectiveSummaryRequest(BaseModel):
-    video_url: str
+    video_url: Annotated[str, Field(...)]
+
 
 class ConceptGraphRequest(BaseModel):
-    video_url: str
+    video_url: Annotated[str, Field(...)]
+
 
 class RegisterRequest(BaseModel):
-    username: str
-    email: str
-    password: str
+    username: Annotated[str, Field(..., min_length=3, max_length=50)]
+    email: Annotated[EmailStr, Field(...)]
+    password: Annotated[
+        str, Field(..., min_length=6, description="User's plain text password")
+    ]
+
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: Annotated[EmailStr, Field(...)]
+    password: Annotated[str, Field(...)]
+
 
 # ── Auth helpers ───────────────────────────────────────────────────────────────
+
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
+
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
+
 
 def create_token(user_id: int, username: str) -> str:
     payload = {
         "sub": str(user_id),
         "username": username,
-        "exp": datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+        # Using modern timezone-aware datetime
+        "exp": datetime.now(UTC) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> Optional[dict]:
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict | None:
     if not credentials:
         return None
     try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM]
+        )
         return {"id": int(payload["sub"]), "username": payload["username"]}
     except JWTError:
         return None
+
 
 # ── JSON extractor ────────────────────────────────────────────────────────────
 def extract_json(text: str) -> dict:
@@ -103,6 +153,7 @@ def extract_json(text: str) -> dict:
             text = match.group(1).strip()
     return json.loads(text)
 
+
 def _get_or_fetch_transcript(video_url: str) -> str:
     if video_url not in video_transcripts:
         transcript = fetch_transcript(video_url)
@@ -111,10 +162,12 @@ def _get_or_fetch_transcript(video_url: str) -> str:
         video_transcripts[video_url] = transcript
     return video_transcripts[video_url]
 
+
 # ── Startup ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 def on_startup():
     create_db_and_tables()
+
 
 # ── Auth endpoints ────────────────────────────────────────────────────────────
 @app.post("/auth/register")
@@ -124,12 +177,17 @@ async def register(req: RegisterRequest):
             raise HTTPException(status_code=400, detail="Email already registered.")
         if session.exec(select(User).where(User.username == req.username)).first():
             raise HTTPException(status_code=400, detail="Username already taken.")
-        user = User(username=req.username, email=req.email, hashed_password=hash_password(req.password))
+        user = User(
+            username=req.username,
+            email=req.email,
+            hashed_password=hash_password(req.password),
+        )
         session.add(user)
         session.commit()
         session.refresh(user)
         token = create_token(user.id, user.username)
         return {"token": token, "username": user.username, "email": user.email}
+
 
 @app.post("/auth/login")
 async def login(req: LoginRequest):
@@ -140,11 +198,13 @@ async def login(req: LoginRequest):
         token = create_token(user.id, user.username)
         return {"token": token, "username": user.username, "email": user.email}
 
+
 @app.get("/auth/me")
 async def me(current_user: Optional[dict] = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated.")
     return current_user
+
 
 @app.get("/history")
 async def get_history(current_user: Optional[dict] = Depends(get_current_user)):
@@ -154,19 +214,34 @@ async def get_history(current_user: Optional[dict] = Depends(get_current_user)):
         rows = session.exec(
             select(VideoHistory).where(VideoHistory.user_id == current_user["id"])
         ).all()
-        return {"videos": [{"video_id": r.video_id, "url": r.video_url, "title": r.title} for r in rows]}
+        return {
+            "videos": [
+                {"video_id": r.video_id, "url": r.video_url, "title": r.title}
+                for r in rows
+            ]
+        }
+
 
 # ── Video processing ──────────────────────────────────────────────────────────
 @app.post("/process")
-async def process_video(request: VideoProcessRequest, current_user: Optional[dict] = Depends(get_current_user)):
+async def process_video(
+    request: VideoProcessRequest,
+    current_user: Optional[dict] = Depends(get_current_user),
+):
     try:
         video_id = get_video_id(request.video_url)
         transcript = fetch_transcript(request.video_url)
         if not transcript:
-            raise HTTPException(status_code=400, detail="No transcript found for this video.")
+            raise HTTPException(
+                status_code=400, detail="No transcript found for this video."
+            )
         video_transcripts[request.video_url] = transcript
         title = f"Video {video_id[:8]}..." if video_id else request.video_url[:40]
-        video_meta[request.video_url] = {"video_id": video_id, "url": request.video_url, "title": title}
+        video_meta[request.video_url] = {
+            "video_id": video_id,
+            "url": request.video_url,
+            "title": title,
+        }
 
         # Persist to user history if logged in
         if current_user:
@@ -177,61 +252,98 @@ async def process_video(request: VideoProcessRequest, current_user: Optional[dic
                     .where(VideoHistory.video_url == request.video_url)
                 ).first()
                 if not existing:
-                    session.add(VideoHistory(
-                        user_id=current_user["id"],
-                        video_url=request.video_url,
-                        video_id=video_id or "",
-                        title=title
-                    ))
+                    session.add(
+                        VideoHistory(
+                            user_id=current_user["id"],
+                            video_url=request.video_url,
+                            video_id=video_id or "",
+                            title=title,
+                        )
+                    )
                     session.commit()
 
-        return {"message": "Video processed successfully", "video_url": request.video_url, "video_id": video_id, "title": title}
+        return {
+            "message": "Video processed successfully",
+            "video_url": request.video_url,
+            "video_id": video_id,
+            "title": title,
+        }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/videos")
 async def list_videos():
     return {"videos": list(video_meta.values())}
 
+
 # ── Query endpoints ───────────────────────────────────────────────────────────
 @app.post("/query")
-async def query_video(request: QueryRequest):
-    transcript = _get_or_fetch_transcript(request.video_url)
+async def query_video(request: QueryRequest) -> dict[str, str]:
+    # Notice we no longer need _get_or_fetch_transcript here
+    # because your LangChain setup handles the retrieval!
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        prompt = f"""You are an intelligent YouTube Video Assistant.
-Transcript:
----
-{transcript[:30000]}
----
-Answer this question based on the transcript:
-{request.question}
-If asked for a summary, use clear bullet points."""
-        response = model.generate_content(prompt)
-        return {"answer": response.text}
+        # 1. Initialize your custom LangChain agent
+        agent = build_chatbot_chain(request.video_url)
+
+        if not agent:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to initialize the AI agent for this video. Ensure the index exists.",
+            )
+
+        # 2. Invoke the agent using modern dictionary inputs
+        inputs = {"messages": [("user", request.question)]}
+        result = agent.invoke(inputs)
+
+        # 3. Safely extract the final text from the response payload
+        final_answer = result["messages"][-1].content
+
+        if isinstance(final_answer, list):
+            final_answer = final_answer[0].get("text", str(final_answer))
+
+        return {"answer": str(final_answer)}
+
     except Exception as e:
-        import traceback; print(f"[ERROR] {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing request: {str(e)}", exc_info=True)
+
+        # Friendly handling for Gemini Rate Limits
+        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            raise HTTPException(
+                status_code=429,
+                detail="Google API rate limit exceeded. Please wait about 60 seconds and try again.",
+            )
+
+        # Generic fallback so we don't expose raw code errors to users
+        raise HTTPException(
+            status_code=500, detail="An internal server error occurred."
+        )
+
 
 @app.post("/query/cross")
 async def cross_video_query(request: CrossVideoQueryRequest):
     if not video_transcripts:
         raise HTTPException(status_code=400, detail="No videos processed yet.")
-    
+
     # If video_urls is provided, filter the transcripts to those specific videos
-    target_urls = request.video_urls if request.video_urls else list(video_transcripts.keys())
-    
+    target_urls = (
+        request.video_urls if request.video_urls else list(video_transcripts.keys())
+    )
+
     video_contexts = []
     for url in target_urls:
         if url in video_transcripts:
-            title = video_meta.get(url, {}).get('title', url)
+            title = video_meta.get(url, {}).get("title", url)
             transcript = video_transcripts[url]
             video_contexts.append(f"[VIDEO: {title}]\n{transcript[:10000]}")
-            
+
     if not video_contexts:
-        raise HTTPException(status_code=400, detail="None of the selected videos have processed transcripts.")
+        raise HTTPException(
+            status_code=400,
+            detail="None of the selected videos have processed transcripts.",
+        )
 
     combined = "\n\n---\n\n".join(video_contexts)
     try:
@@ -243,8 +355,16 @@ Answer across all videos, citing [VIDEO: ...] labels:
 {request.question}""")
         return {"answer": response.text}
     except Exception as e:
-        import traceback; print(f"[ERROR] {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing request: {str(e)}", exc_info=True)
+        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            raise HTTPException(
+                status_code=429,
+                detail="Google API rate limit exceeded. Please wait about 60 seconds and try again.",
+            )
+        raise HTTPException(
+            status_code=500, detail="An internal server error occurred."
+        )
+
 
 @app.post("/quiz")
 async def generate_quiz(request: QuizRequest):
@@ -264,7 +384,16 @@ Return ONLY valid JSON, no markdown:
         response = model.generate_content(prompt)
         return {"quiz": extract_json(response.text), "quiz_type": request.quiz_type}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing request: {str(e)}", exc_info=True)
+        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            raise HTTPException(
+                status_code=429,
+                detail="Google API rate limit exceeded. Please wait about 60 seconds and try again.",
+            )
+        raise HTTPException(
+            status_code=500, detail="An internal server error occurred."
+        )
+
 
 @app.post("/summary/perspectives")
 async def perspective_summary(request: PerspectiveSummaryRequest):
@@ -283,8 +412,20 @@ Return ONLY valid JSON, no markdown:
         response = model.generate_content(prompt)
         return {"perspectives": extract_json(response.text)}
     except Exception as e:
-        import traceback; print(f"[ERROR] {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing request: {str(e)}", exc_info=True)
+
+        # Friendly handling for Gemini Rate Limits
+        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            raise HTTPException(
+                status_code=429,
+                detail="Google API rate limit exceeded. Please wait about 60 seconds and try again.",
+            )
+
+        # Generic fallback so we don't expose raw code errors to users
+        raise HTTPException(
+            status_code=500, detail="An internal server error occurred."
+        )
+
 
 @app.post("/concept-graph")
 async def concept_graph(request: ConceptGraphRequest):
@@ -299,17 +440,32 @@ Rules: 8-15 concepts, level 0=foundational, labels max 4 words, snake_case IDs."
         response = model.generate_content(prompt)
         return {"graph": extract_json(response.text)}
     except Exception as e:
-        import traceback; print(f"[ERROR] {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing request: {str(e)}", exc_info=True)
+
+        # Friendly handling for Gemini Rate Limits
+        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            raise HTTPException(
+                status_code=429,
+                detail="Google API rate limit exceeded. Please wait about 60 seconds and try again.",
+            )
+
+        # Generic fallback so we don't expose raw code errors to users
+        raise HTTPException(
+            status_code=500, detail="An internal server error occurred."
+        )
+
 
 @app.post("/videos/delete")
-async def delete_video(request: VideoProcessRequest, current_user: Optional[dict] = Depends(get_current_user)):
+async def delete_video(
+    request: VideoProcessRequest,
+    current_user: Optional[dict] = Depends(get_current_user),
+):
     url = request.video_url
     if url in video_transcripts:
         del video_transcripts[url]
     if url in video_meta:
         del video_meta[url]
-    
+
     # Also remove from persistence if exists
     if current_user:
         with Session(engine) as session:
@@ -321,9 +477,11 @@ async def delete_video(request: VideoProcessRequest, current_user: Optional[dict
             for item in existing:
                 session.delete(item)
             session.commit()
-            
+
     return {"message": f"Successfully removed {url} from memory"}
+
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

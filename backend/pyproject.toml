@@ -23,4 +23,5 @@ dependencies = [
     "passlib>=1.7.4",
     "python-jose[cryptography]>=3.5.0",
     "argon2-cffi>=25.1.0",
+    "pydantic[email]>=2.12.5",
 ]
