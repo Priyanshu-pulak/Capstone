@@ -1,284 +1,156 @@
-# YouTube Chatbot (Modular)
+# VidQuery
 
-A conversational AI assistant that fetches YouTube video transcripts, builds vector stores for efficient retrieval, and uses LangChain + Google Generative AI to answer questions or generate summaries. The project features both a **CLI interface** and a **Streamlit web app** with a clean modular architecture.
+VidQuery is a full-stack YouTube learning assistant with a FastAPI backend and a Vite + React frontend. It lets you process YouTube videos, chat with their transcripts, compare ideas across multiple videos, generate quizzes, view perspective-based summaries, and explore concept graphs.
 
-## ✨ Features
+## Features
 
-- **Dual Interface**: CLI and Streamlit web app
-- Fetches YouTube video transcripts automatically
-- Query classification (summary vs. question-answering)
-- RAG-based Q&A using FAISS vector stores
-- Intelligent summarization with context-aware retrieval
-- Modular codebase for easy testing and maintenance
+- FastAPI backend for transcript processing, querying, auth, and video history
+- React frontend for an interactive chat-style experience
+- YouTube transcript extraction and caching
+- Single-video Q&A and cross-video querying
+- Quiz generation in MCQ or short-answer format
+- Perspective summaries for student, developer, business, and beginner/expert views
+- Concept graph generation for key ideas and dependencies
+- Modular LangChain-based backend components for retrieval and summarization
+- Local FAISS index storage under `backend/local_indexes/`
 
-## 📋 Requirements
+## Requirements
 
-- Python 3.11+
-- Conda (recommended) or virtualenv
-- Google API Key (for Generative AI)
+- Python 3.13+
+- Node.js 18+ and npm
+- A Google AI API key
 
-## 📁 Project Structure
+## Environment Variables
 
-```
-YouTube_chatbot/
-├── .env                      # Environment variables (API keys)
-├── .gitignore
-├── environment.yml           # Conda environment spec
-├── main.py                   # Smart entry point (CLI or Streamlit)
-├── README.md
-└── src/
-    ├── __init__.py
-    ├── app.py                # Streamlit web application
-    ├── youtube_chatbot.py    # CLI chatbot interface
-    ├── utils.py              # Core utilities (fetch_transcript, split_transcript, etc.)
-    ├── chain/
-    │   ├── __init__.py
-    │   ├── chatbot_chain.py          # Main chain builder
-    │   ├── classification_chain.py   # Query classification logic
-    │   ├── main_chain.py             # Final routing chain
-    │   ├── qa_chain.py               # Question-answering chain
-    │   └── summary_chain.py          # Summarization chain
-    ├── prompt_templates/
-    │   ├── __init__.py
-    │   └── prompt.py                 # All prompt templates
-    ├── schema/
-    │   ├── __init__.py
-    │   └── query_category.py         # Pydantic models for validation
-    └── vector_stores/
-        ├── __init__.py
-        ├── qa_vector_store.py        # QA FAISS store builder
-        └── summary_vector_store.py   # Summary FAISS store builder
-```
-
-## 🚀 Setup
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/Priyanshu-pulak/YouTube_chatbot.git
-cd YouTube_chatbot
-```
-
-### 2. Create the environment
-
-Using conda (recommended):
-
-```bash
-conda env create -f environment.yml
-conda activate youtube_chatbot
-```
-
-### 3. Configure API Keys
-
-Create a `.env` file in the project root:
+Create a `.env` file in `backend/` before starting the backend.
 
 ```env
-GOOGLE_API_KEY="your-google-api-key-here"
+GOOGLE_API_KEY=your_google_api_key
+SECRET_KEY=your_secret_key_here
 ```
 
-Get your Google API key from: https://makersuite.google.com/app/apikey
+`SECRET_KEY` is optional in development. If omitted, the backend uses a default fallback value.
 
-## 💻 Usage
+## Running the Project
 
-The project offers two interfaces: **CLI** for terminal usage and **Streamlit** for a web-based UI.
+### Backend
 
-### Option 1: CLI Interface
-
-Run the interactive command-line chatbot:
+Using `uv`:
 
 ```bash
-python main.py
+cd backend
+uv sync
+uv run uvicorn main:app --reload
 ```
 
-### Option 2: Streamlit Web App
-
-Launch the web interface:
+Using `venv` + `pip`:
 
 ```bash
-python main.py app
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+uvicorn main:app --reload
 ```
 
-### Component Details
+The backend starts on `http://localhost:8000`.
 
-1. **Transcript Fetching** (`src/utils.py`)
-
-   - `get_video_id()`: Extracts video ID from YouTube URL
-   - `fetch_transcript()`: Fetches transcript using `youtube-transcript-api`
-   - `split_transcript()`: Splits into chunks (1000 chars, 200 overlap)
-2. **Vector Stores** (`src/vector_stores/`)
-
-   - **QA Store**: Stores transcript chunks for question answering
-   - **Summary Store**: Stores generated summaries for each chunk
-   - Uses FAISS for efficient similarity search
-   - Embeddings via Google's `text-embedding-004`
-3. **Chain Building** (`src/chain/`)
-
-   - **chatbot_chain.py**: Main builder that orchestrates all chains
-   - **classification_chain.py**: Classifies queries as summary or QA
-   - **qa_chain.py**: Retrieves relevant chunks and answers questions
-   - **summary_chain.py**: Retrieves and combines summaries
-   - **main_chain.py**: Routes queries to appropriate chain using `RunnableBranch`
-4. **Query Processing Flow**
-
-5. **Interfaces**
-
-   - **CLI** (`src/youtube_chatbot.py`): Terminal-based interactive interface
-   - **Web** (`src/app.py`): Streamlit web application with session management
-
-### Key Technologies
-
-- **LangChain**: Orchestration framework for LLM chains
-- **Google Generative AI**:
-  - Model: `gemini-2.5-flash-lite` for chat/generation
-  - Embeddings: `text-embedding-004` for vector search
-- **FAISS**: Fast similarity search for retrieval
-- **Streamlit**: Web UI framework
-- **Pydantic**: Data validation for query categories
-
-## 🛠️ Development
-
-### Module Responsibilities
-
-| Module                                        | Responsibility                                                  |
-| --------------------------------------------- | --------------------------------------------------------------- |
-| `src/utils.py`                              | Core utilities: transcript fetching, text splitting, formatting |
-| `src/chain/chatbot_chain.py`                | Main chain builder, orchestrates all components                 |
-| `src/chain/classification_chain.py`         | Query classification using Pydantic parser                      |
-| `src/chain/qa_chain.py`                     | QA chain with retrieval and prompt composition                  |
-| `src/chain/summary_chain.py`                | Summary chain with auto k-detection                             |
-| `src/chain/main_chain.py`                   | Final routing chain using `RunnableBranch`                    |
-| `src/prompt_templates/prompt.py`            | All prompt templates for QA and summarization                   |
-| `src/schema/query_category.py`              | Pydantic models for validation                                  |
-| `src/vector_stores/qa_vector_store.py`      | Builds FAISS store from transcript chunks                       |
-| `src/vector_stores/summary_vector_store.py` | Generates summaries and builds FAISS store                      |
-| `src/youtube_chatbot.py`                    | CLI interface with minimal result extraction                    |
-| `src/app.py`                                | Streamlit web app with session management                       |
-| `main.py`                                   | Smart entry point (auto-detects CLI vs Streamlit)               |
-
-### Running as a Package
+### Frontend
 
 ```bash
-# From project root
-python main.py              # CLI interface
-python main.py app          # Streamlit web app
-
-# Or run modules directly
-python -m src.youtube_chatbot
-streamlit run src/app.py
+cd frontend
+npm install
+npm run dev
 ```
 
-## ⚠️ Troubleshooting
+The frontend runs on Vite's default dev server and proxies `/api` requests to `http://localhost:8000`.
 
-### ModuleNotFoundError
+## Project Structure
 
-**Issue:** `ModuleNotFoundError: No module named 'src'`
-
-**Solutions:**
-
-- Ensure you're running from the project root directory
-- Use `python main.py` (not `python src/youtube_chatbot.py`)
-- Check that all `src/` subdirectories have `__init__.py` files
-- Verify conda environment is activated: `conda activate youtube_chatbot`
-
-### API Authentication Errors
-
-**Issue:** `Invalid API key` or authentication failures
-
-**Solutions:**
-
-- Verify `.env` file exists in project root
-- Check API key format: `GOOGLE_API_KEY="your-key-here"`
-- Test API key:
-  ```bash
-  python -c "import os; from dotenv import load_dotenv; load_dotenv(); print(os.getenv('GOOGLE_API_KEY'))"
-  ```
-- Get a new key from: https://makersuite.google.com/app/apikey
-
-### Transcript Disabled Error
-
-**Issue:** `TranscriptsDisabled` or no transcript found
-
-**Solutions:**
-
-- Video may have transcripts disabled by creator
-- Try a different video with captions enabled
-- Check video language (currently supports English)
-- Verify video ID is correct
-
-### Streamlit Import Error
-
-**Issue:** `ModuleNotFoundError: No module named 'streamlit'`
-
-**Solution:**
-
-```bash
-conda activate youtube_chatbot
-pip install streamlit
+```text
+VidQuery/
+├── package.json
+├── README.md
+├── .gitignore
+├── backend/
+│   ├── main.py
+│   ├── pyproject.toml
+│   ├── legacy/
+│   │   ├── link.txt
+│   │   └── main_legacy.py
+│   ├── local_indexes/
+│   │   ├── Gl7VxhxV9Dg_qa/
+│   │   ├── Gl7VxhxV9Dg_summary/
+│   │   └── ... (additional FAISS index folders)
+│   ├── src/
+│   │   ├── __init__.py
+│   │   ├── utils.py
+│   │   ├── youtube_chatbot.py
+│   │   ├── chain/
+│   │   │   ├── agent.py
+│   │   │   ├── chatbot_chain.py
+│   │   │   ├── qa_chain.py
+│   │   │   └── summary_chain.py
+│   │   ├── database/
+│   │   │   └── models.py
+│   │   ├── prompt_templates/
+│   │   │   └── prompt.py
+│   │   ├── schema/
+│   │   │   └── query_category.py
+│   │   └── vector_stores/
+│   │       ├── qa_vector_store.py
+│   │       └── summary_vector_store.py
+│   └── tests/
+│       ├── test_fastapi.py
+│       ├── test_gemini_api.py
+│       ├── test_process.py
+│       └── test_write.py
+└── frontend/
+    ├── index.html
+    ├── package.json
+    ├── postcss.config.js
+    ├── tailwind.config.js
+    ├── tsconfig.json
+    ├── vite.config.ts
+    └── src/
+        ├── App.tsx
+        ├── index.css
+        └── main.tsx
 ```
 
-### Rate Limiting
+## Backend Overview
 
-**Issue:** API rate limit exceeded during summary generation
+- `backend/main.py`: FastAPI app with auth, history, transcript processing, querying, quiz generation, summaries, and concept graph endpoints
+- `backend/src/utils.py`: transcript fetching, video ID parsing, and transcript chunking helpers
+- `backend/src/chain/`: modular LangChain orchestration for question answering and summarization
+- `backend/src/vector_stores/`: FAISS index creation and loading for transcript and summary retrieval
+- `backend/src/database/models.py`: SQLite models and persistence helpers
+- `backend/local_indexes/`: generated local vector indexes for processed videos
 
-**Solution:**
+## Frontend Overview
 
-- The code includes 8-second delays between chunk summaries
-- For videos with many chunks, processing may take time
-- Consider using a different API tier or reducing chunk count
+- `frontend/src/App.tsx`: main application UI, authentication flow, chat, quiz, perspectives, and concept graph views
+- `frontend/src/main.tsx`: React entry point
+- `frontend/src/index.css`: global styling
+- `frontend/vite.config.ts`: Vite config with `/api` proxy to the backend
 
-## 📊 Performance Notes
+## API Highlights
 
-- **Video Processing Time**: Depends on transcript length
+- `POST /auth/register`
+- `POST /auth/login`
+- `GET /auth/me`
+- `GET /history`
+- `POST /process`
+- `GET /videos`
+- `POST /query`
+- `POST /query/cross`
+- `POST /quiz`
+- `POST /summary/perspectives`
+- `POST /concept-graph`
+- `POST /videos/delete`
 
-  - ~1-2 minutes for 10-minute videos
-  - ~3-5 minutes for 30-minute videos
-  - Summary generation is the longest step (8s per chunk)
-- **Memory Usage**: Moderate (stores embeddings in memory)
+## Notes
 
-  - ~200-500MB for typical videos
-  - FAISS indexes are lightweight
-- **Query Response Time**: Fast (<2 seconds)
-
-  - Vector search is very efficient
-  - Most time spent in LLM generation
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Follow the modular structure and coding conventions
-4. Add tests for new features
-5. Update documentation
-6. Submit a pull request
-
-**Coding Standards:**
-
-- Use type hints for function parameters and returns
-- Follow the builder pattern for chain construction
-- Keep functions focused and single-purpose
-- Add docstrings for public functions
-- Use absolute imports from `src.*`
-
-## 🔑 API Keys & Services
-
-- **GOOGLE_API_KEY**: Required for Google Generative AI
-  - Model: `gemini-2.5-flash-lite` (chat/generation)
-  - Embeddings: `text-embedding-004` (vector search)
-  - Get your key: https://makersuite.google.com/app/apikey
-
-## 🙏 Acknowledgments
-
-- Built with [LangChain](https://www.langchain.com/) - LLM orchestration framework
-- Powered by [Google Generative AI](https://ai.google.dev/) - Gemini models
-- Vector search via [FAISS](https://github.com/facebookresearch/faiss) - Facebook AI Similarity Search
-- Web UI with [Streamlit](https://streamlit.io/) - Fast web apps for ML
-- Transcripts from [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api)
-
-## 📚 Additional Resources
-
-- [LangChain Documentation](https://python.langchain.com/)
-- [Google AI Studio](https://makersuite.google.com/)
-- [Streamlit Documentation](https://docs.streamlit.io/)
-- [FAISS Documentation](https://faiss.ai/)
+- `backend/local_indexes/` contains generated FAISS data and is ignored by git.
+- The `backend/legacy/` directory keeps older entrypoint code for reference.
+- The files in `backend/tests/` currently act more like smoke scripts than a full automated test suite.
