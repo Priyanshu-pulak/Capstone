@@ -4,7 +4,6 @@ import { motion } from 'framer-motion';
 import { api } from '../api';
 import type { VideoMeta } from '../App';
 
-// We split off the Perspective interface here!
 interface PerspectiveData {
   student: { summary: string; key_concepts: string[]; study_tip: string; };
   developer: { summary: string; key_concepts: string[]; action_item: string; };

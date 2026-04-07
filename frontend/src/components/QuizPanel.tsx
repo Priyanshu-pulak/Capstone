@@ -8,7 +8,6 @@ import type { VideoMeta } from '../App';
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
-// We offloaded the Quiz interfaces here!
 interface MCQ { question: string; options: string[]; answer: string; explanation: string; }
 interface ShortQ { question: string; answer: string; explanation: string; }
 type QuizQuestion = MCQ | ShortQ;

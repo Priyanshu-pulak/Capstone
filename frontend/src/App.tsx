@@ -25,7 +25,6 @@ const LEVEL_BG = ['#eef2ff','#f5f3ff','#faf5ff','#fdf4ff','#fdf2f8','#fff1f2'];
 
 
 
-// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function VidQueryApp() {
   const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('vq_username'));
   const [mode, setMode] = useState<Mode>('chat');
@@ -39,7 +38,6 @@ export default function VidQueryApp() {
   const [question, setQuestion] = useState('');
   const [isLoadingAnswer, setIsLoadingAnswer] = useState(false);
 
-  // Load user's video history on login
   useEffect(() => {
     if (!currentUser) return;
     api.get('/history').then(res => {

@@ -3,7 +3,6 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import Annotated
 
-# Get backend root directory (one level up from src)
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 DB_PATH = BACKEND_DIR / "vidquery.db"
 

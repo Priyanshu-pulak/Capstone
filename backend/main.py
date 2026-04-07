@@ -3,7 +3,9 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import os, json, re
+import os
+import json
+import re
 from typing import Optional
 from dotenv import load_dotenv
 import logging
@@ -54,7 +56,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── Pydantic models ───────────────────────────────────────────────────────────
 class VideoProcessRequest(BaseModel):
     video_url: Annotated[str, Field(..., description="Full URL of the YouTube video")]
 
@@ -107,8 +108,9 @@ class LoginRequest(BaseModel):
     password: Annotated[str, Field(...)]
 
 
-# ── Auth helpers ───────────────────────────────────────────────────────────────
-
+'''
+Authentication system using JWT tokens, with password hashing via Argon2. The /auth/register and /auth/login endpoints allow users to create accounts and log in, returning a JWT token for authenticated requests. The get_current_user dependency decodes the token to identify the user for protected routes. Passwords are securely hashed before storage, and verified during login.
+'''
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -142,7 +144,6 @@ def get_current_user(
         return None
 
 
-# ── JSON extractor ────────────────────────────────────────────────────────────
 def extract_json(text: str) -> dict:
     match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if match:
@@ -282,10 +283,7 @@ async def list_videos():
 # ── Query endpoints ───────────────────────────────────────────────────────────
 @app.post("/query")
 async def query_video(request: QueryRequest) -> dict[str, str]:
-    # Notice we no longer need _get_or_fetch_transcript here
-    # because your LangChain setup handles the retrieval!
     try:
-        # 1. Initialize your custom LangChain agent
         agent = build_chatbot_chain(request.video_url)
 
         if not agent:
@@ -294,11 +292,9 @@ async def query_video(request: QueryRequest) -> dict[str, str]:
                 detail="Failed to initialize the AI agent for this video. Ensure the index exists.",
             )
 
-        # 2. Invoke the agent using modern dictionary inputs
         inputs = {"messages": [("user", request.question)]}
         result = agent.invoke(inputs)
 
-        # 3. Safely extract the final text from the response payload
         final_answer = result["messages"][-1].content
 
         if isinstance(final_answer, list):
@@ -309,14 +305,12 @@ async def query_video(request: QueryRequest) -> dict[str, str]:
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)
 
-        # Friendly handling for Gemini Rate Limits
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             raise HTTPException(
                 status_code=429,
                 detail="Google API rate limit exceeded. Please wait about 60 seconds and try again.",
             )
 
-        # Generic fallback so we don't expose raw code errors to users
         raise HTTPException(
             status_code=500, detail="An internal server error occurred."
         )
@@ -327,7 +321,6 @@ async def cross_video_query(request: CrossVideoQueryRequest):
     if not video_transcripts:
         raise HTTPException(status_code=400, detail="No videos processed yet.")
 
-    # If video_urls is provided, filter the transcripts to those specific videos
     target_urls = (
         request.video_urls if request.video_urls else list(video_transcripts.keys())
     )
@@ -414,14 +407,12 @@ Return ONLY valid JSON, no markdown:
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)
 
-        # Friendly handling for Gemini Rate Limits
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             raise HTTPException(
                 status_code=429,
                 detail="Google API rate limit exceeded. Please wait about 60 seconds and try again.",
             )
 
-        # Generic fallback so we don't expose raw code errors to users
         raise HTTPException(
             status_code=500, detail="An internal server error occurred."
         )
@@ -442,14 +433,12 @@ Rules: 8-15 concepts, level 0=foundational, labels max 4 words, snake_case IDs."
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)
 
-        # Friendly handling for Gemini Rate Limits
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             raise HTTPException(
                 status_code=429,
                 detail="Google API rate limit exceeded. Please wait about 60 seconds and try again.",
             )
 
-        # Generic fallback so we don't expose raw code errors to users
         raise HTTPException(
             status_code=500, detail="An internal server error occurred."
         )
@@ -466,7 +455,6 @@ async def delete_video(
     if url in video_meta:
         del video_meta[url]
 
-    # Also remove from persistence if exists
     if current_user:
         with Session(engine) as session:
             existing = session.exec(
