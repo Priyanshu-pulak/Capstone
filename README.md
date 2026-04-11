@@ -66,7 +66,13 @@ VidQuery is a full-stack YouTube learning assistant. It combines a FastAPI backe
 
 ## Environment Variables
 
-Create `backend/.env`:
+Copy `backend/.env.example` to `backend/.env` and fill in your values:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Then set:
 
 ```env
 GOOGLE_API_KEY=your_google_api_key
@@ -76,13 +82,29 @@ SECRET_KEY=your_secret_key_here
 Notes:
 
 - `GOOGLE_API_KEY` is required
-- `SECRET_KEY` is optional for local development, but you should set it in any real deployment
+- `SECRET_KEY` should always be set to a long random value outside throwaway local testing
 
 ## Getting Started
 
-### 1. Start the backend
+### 1. Install dependencies
 
-We use `uv` for dependency management and the new FastAPI CLI to run the development server:
+From the project root:
+
+```bash
+npm install
+npm run install:backend
+npm run install:frontend
+```
+
+You can also use the combined command:
+
+```bash
+npm run install:all
+```
+
+### 2. Start the backend
+
+We use `uv` for dependency management and the FastAPI CLI to run the development server:
 
 ```bash
 cd backend
@@ -92,7 +114,13 @@ uv run fastapi dev main.py
 
 The backend runs at `http://127.0.0.1:8000`.
 
-### 2. Start the frontend
+You can also start it from the project root with:
+
+```bash
+npm run dev:backend
+```
+
+### 3. Start the frontend
 
 ```bash
 cd frontend
@@ -102,6 +130,39 @@ npm run dev
 
 The frontend runs on Vite's dev server, normally `http://127.0.0.1:5173`.
 All `/api/*` requests are proxied to the FastAPI backend through `frontend/vite.config.ts`.
+
+You can also start it from the project root with:
+
+```bash
+npm run dev:frontend
+```
+
+### 4. Start both together
+
+From the project root:
+
+```bash
+npm run dev
+```
+
+### 5. Quick verification
+
+Run the static checks from the project root:
+
+```bash
+npm run check
+```
+
+With the backend running, verify the health endpoint:
+
+```bash
+npm run smoke:backend
+```
+
+Expected result:
+
+- a JSON response with `"status": "ok"`
+- `"database": "ok"`
 
 ## Project Structure
 

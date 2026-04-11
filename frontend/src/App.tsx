@@ -33,6 +33,7 @@ export default function VidQueryApp() {
   const [selectedCrossVideos, setSelectedCrossVideos] = useState<string[]>([]);
   const [urlInput, setUrlInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [removingVideoUrl, setRemovingVideoUrl] = useState<string | null>(null);
 
   const [chatHistory, setChatHistory] = useState<Message[]>([]);
   const [question, setQuestion] = useState('');
@@ -82,12 +83,25 @@ export default function VidQueryApp() {
     } finally { setIsProcessing(false); }
   };
 
-  const removeVideo = (url: string) => {
-    setVideos(prev => {
-      const remaining = prev.filter(v => v.url !== url);
-      if (selectedVideo?.url === url) setSelectedVideo(remaining[0] ?? null);
-      return remaining;
-    });
+  const removeVideo = async (url: string) => {
+    if (removingVideoUrl) return;
+    setRemovingVideoUrl(url);
+    try {
+      await api.post('/videos/delete', { video_url: url });
+      setVideos(prev => {
+        const remaining = prev.filter(v => v.url !== url);
+        if (selectedVideo?.url === url) setSelectedVideo(remaining[0] ?? null);
+        return remaining;
+      });
+      setSelectedCrossVideos(prev => prev.filter(videoUrl => videoUrl !== url));
+      if (selectedVideo?.url === url) {
+        setChatHistory([]);
+      }
+    } catch {
+      alert('Failed to remove video. Please try again.');
+    } finally {
+      setRemovingVideoUrl(null);
+    }
   };
 
   const sendChat = async (e: React.FormEvent) => {
@@ -179,6 +193,7 @@ export default function VidQueryApp() {
           onUrlInputChange={(url) => setUrlInput(url)}
           onAddVideo={addVideo}
           isProcessing={isProcessing}
+          removingVideoUrl={removingVideoUrl}
           mode={mode}
         />
 

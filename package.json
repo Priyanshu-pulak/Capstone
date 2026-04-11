@@ -4,9 +4,16 @@
   "description": "Unified VidQuery project",
   "main": "index.js",
   "scripts": {
-    "install:all": "npm install && cd frontend && npm install",
-    "dev:backend": "source .venv-mac/bin/activate && python server.py",
-    "dev:frontend": "cd frontend && npm run dev",
+    "install:backend": "cd backend && uv sync",
+    "install:frontend": "npm --prefix frontend install",
+    "install:all": "npm install && npm run install:backend && npm run install:frontend",
+    "check:backend": "PYTHONPYCACHEPREFIX=/tmp/vidquery-pycache python3 -m py_compile backend/main.py backend/src/*.py backend/src/chain/*.py backend/src/database/*.py backend/src/prompt_templates/*.py backend/src/schema/*.py backend/src/vector_stores/*.py",
+    "check:frontend": "npm run build:frontend",
+    "check": "npm run check:backend && npm run check:frontend",
+    "dev:backend": "cd backend && uv run fastapi dev main.py",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "smoke:backend": "curl --fail --silent --show-error http://127.0.0.1:8000/health",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
   },
   "dependencies": {

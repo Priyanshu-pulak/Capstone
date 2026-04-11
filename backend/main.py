@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, EmailStr
 from typing import Annotated
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
@@ -71,6 +72,16 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def _database_is_available() -> bool:
+    try:
+        with Session(engine) as session:
+            session.exec(select(User).limit(1)).first()
+        return True
+    except Exception:
+        logger.exception("Database health check failed.")
+        return False
 
 
 class VideoProcessRequest(BaseModel):
@@ -185,6 +196,21 @@ def _get_or_fetch_transcript(video_url: str) -> str:
 @app.on_event("startup")
 def on_startup():
     create_db_and_tables()
+
+
+# ── Health endpoint ───────────────────────────────────────────────────────────
+@app.get("/health")
+async def health():
+    db_ok = _database_is_available()
+    return JSONResponse(
+        status_code=200 if db_ok else 503,
+        content={
+            "status": "ok" if db_ok else "degraded",
+            "service": "VidQuery API",
+            "database": "ok" if db_ok else "error",
+            "google_api_key_configured": bool(os.getenv("GOOGLE_API_KEY")),
+        },
+    )
 
 
 # ── Auth endpoints ────────────────────────────────────────────────────────────
