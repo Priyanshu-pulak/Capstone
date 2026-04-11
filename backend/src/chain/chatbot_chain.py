@@ -7,12 +7,9 @@ from src.vector_stores import build_qa_vector_store, build_summary_vector_store
 from src.chain.qa_chain import build_qa_chain
 from src.chain.summary_chain import build_summary_chain
 from src.chain.agent import build_agent
-from src.database.models import create_db_and_tables
 
-def build_chatbot_chain(video_url: str):
+def build_chatbot_chain(video_url: str, transcript: str | None = None):
     load_dotenv()
-
-    create_db_and_tables()
 
     chat_model = ChatGoogleGenerativeAI(model="gemma-4-31b-it")
     embedding_model = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
@@ -23,7 +20,7 @@ def build_chatbot_chain(video_url: str):
         print("Could not extract Video ID.")
         return None
 
-    transcript = fetch_transcript(video_url)
+    transcript = transcript or fetch_transcript(video_url)
     if not transcript:
         return None
 

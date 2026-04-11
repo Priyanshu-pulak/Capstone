@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Eye, Loader2, Sparkles, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { api } from '../api';
+import { loadFeatureState, saveFeatureState } from '../featureStorage';
 import type { VideoMeta } from '../App';
 
 interface PerspectiveData {
@@ -12,18 +13,69 @@ interface PerspectiveData {
 }
 
 interface PerspectivesPanelProps {
+  currentUser: string;
   selectedVideo: VideoMeta | null;
 }
 
-export default function PerspectivesPanel({ selectedVideo }: PerspectivesPanelProps) {
+export default function PerspectivesPanel({
+  currentUser,
+  selectedVideo,
+}: PerspectivesPanelProps) {
   const [perspectives, setPerspectives] = useState<PerspectiveData | null>(null);
   const [isLoadingPerspectives, setIsLoadingPerspectives] = useState(false);
+  const [hydratedPersistenceKey, setHydratedPersistenceKey] = useState<string | null>(null);
+
+  const selectedVideoUrl = selectedVideo?.url ?? null;
+  const persistenceKey = selectedVideoUrl
+    ? `perspectives:${currentUser}:${selectedVideoUrl}`
+    : null;
+
+  useEffect(() => {
+    if (!selectedVideoUrl) {
+      setPerspectives(null);
+      setHydratedPersistenceKey(null);
+      return;
+    }
+
+    const persisted = loadFeatureState<PerspectiveData>(
+      currentUser,
+      'perspectives',
+      selectedVideoUrl,
+    );
+
+    setPerspectives(persisted);
+    setHydratedPersistenceKey(persistenceKey);
+  }, [currentUser, persistenceKey, selectedVideoUrl]);
+
+  useEffect(() => {
+    if (
+      !perspectives ||
+      !selectedVideoUrl ||
+      !persistenceKey ||
+      hydratedPersistenceKey !== persistenceKey
+    ) {
+      return;
+    }
+
+    saveFeatureState<PerspectiveData>(
+      currentUser,
+      'perspectives',
+      selectedVideoUrl,
+      perspectives,
+    );
+  }, [
+    currentUser,
+    hydratedPersistenceKey,
+    persistenceKey,
+    perspectives,
+    selectedVideoUrl,
+  ]);
 
   const loadPerspectives = async () => {
-    if (!selectedVideo) return;
-    setIsLoadingPerspectives(true); setPerspectives(null);
+    if (!selectedVideoUrl) return;
+    setIsLoadingPerspectives(true);
     try {
-      const res = await api.post('/summary/perspectives', { video_url: selectedVideo.url });
+      const res = await api.post('/summary/perspectives', { video_url: selectedVideoUrl });
       setPerspectives(res.data.perspectives);
     } catch { 
       alert('Failed to generate perspectives.'); 

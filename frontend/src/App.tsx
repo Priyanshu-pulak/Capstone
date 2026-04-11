@@ -19,6 +19,22 @@ export interface Message { role: 'user' | 'assistant'; content: string; source?:
 export interface VideoMeta { video_id: string; url: string; title: string; }
 export type Mode = 'chat' | 'cross' | 'quiz' | 'perspectives' | 'concepts';
 
+interface PersistedChatState {
+  videoChatHistories: Record<string, Message[]>;
+  videoQuestionDrafts: Record<string, string>;
+  crossChatHistory: Message[];
+  crossQuestion: string;
+}
+
+const getChatStorageKey = (username: string) => `vq_chat_state:${username}`;
+
+const emptyChatState = (): PersistedChatState => ({
+  videoChatHistories: {},
+  videoQuestionDrafts: {},
+  crossChatHistory: [],
+  crossQuestion: '',
+});
+
 
 const LEVEL_COLORS = ['#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899','#f43f5e'];
 const LEVEL_BG = ['#eef2ff','#f5f3ff','#faf5ff','#fdf4ff','#fdf2f8','#fff1f2'];
@@ -35,9 +51,16 @@ export default function VidQueryApp() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [removingVideoUrl, setRemovingVideoUrl] = useState<string | null>(null);
 
-  const [chatHistory, setChatHistory] = useState<Message[]>([]);
-  const [question, setQuestion] = useState('');
+  const [videoChatHistories, setVideoChatHistories] = useState<Record<string, Message[]>>({});
+  const [videoQuestionDrafts, setVideoQuestionDrafts] = useState<Record<string, string>>({});
+  const [crossChatHistory, setCrossChatHistory] = useState<Message[]>([]);
+  const [crossQuestion, setCrossQuestion] = useState('');
+  const [hasHydratedChatState, setHasHydratedChatState] = useState(false);
   const [isLoadingAnswer, setIsLoadingAnswer] = useState(false);
+
+  const selectedVideoUrl = selectedVideo?.url ?? null;
+  const selectedVideoChatHistory = selectedVideoUrl ? (videoChatHistories[selectedVideoUrl] ?? []) : [];
+  const selectedVideoQuestion = selectedVideoUrl ? (videoQuestionDrafts[selectedVideoUrl] ?? '') : '';
 
   useEffect(() => {
     if (!currentUser) return;
@@ -48,6 +71,67 @@ export default function VidQueryApp() {
       }
     }).catch(() => {});
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setVideoChatHistories({});
+      setVideoQuestionDrafts({});
+      setCrossChatHistory([]);
+      setCrossQuestion('');
+      setHasHydratedChatState(false);
+      return;
+    }
+
+    const storageKey = getChatStorageKey(currentUser);
+    const rawState = localStorage.getItem(storageKey);
+    if (!rawState) {
+      const emptyState = emptyChatState();
+      setVideoChatHistories(emptyState.videoChatHistories);
+      setVideoQuestionDrafts(emptyState.videoQuestionDrafts);
+      setCrossChatHistory(emptyState.crossChatHistory);
+      setCrossQuestion(emptyState.crossQuestion);
+      setHasHydratedChatState(true);
+      return;
+    }
+
+    try {
+      const parsedState = JSON.parse(rawState) as Partial<PersistedChatState>;
+      setVideoChatHistories(parsedState.videoChatHistories ?? {});
+      setVideoQuestionDrafts(parsedState.videoQuestionDrafts ?? {});
+      setCrossChatHistory(parsedState.crossChatHistory ?? []);
+      setCrossQuestion(parsedState.crossQuestion ?? '');
+    } catch {
+      localStorage.removeItem(storageKey);
+      const emptyState = emptyChatState();
+      setVideoChatHistories(emptyState.videoChatHistories);
+      setVideoQuestionDrafts(emptyState.videoQuestionDrafts);
+      setCrossChatHistory(emptyState.crossChatHistory);
+      setCrossQuestion(emptyState.crossQuestion);
+    } finally {
+      setHasHydratedChatState(true);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !hasHydratedChatState) return;
+
+    localStorage.setItem(
+      getChatStorageKey(currentUser),
+      JSON.stringify({
+        videoChatHistories,
+        videoQuestionDrafts,
+        crossChatHistory,
+        crossQuestion,
+      } satisfies PersistedChatState),
+    );
+  }, [
+    crossChatHistory,
+    crossQuestion,
+    currentUser,
+    hasHydratedChatState,
+    videoChatHistories,
+    videoQuestionDrafts,
+  ]);
 
   const handleAuth = (token: string, username: string) => {
     localStorage.setItem('vq_token', token);
@@ -61,7 +145,12 @@ export default function VidQueryApp() {
     setCurrentUser(null);
     setVideos([]);
     setSelectedVideo(null);
-    setChatHistory([]);
+    setSelectedCrossVideos([]);
+    setVideoChatHistories({});
+    setVideoQuestionDrafts({});
+    setCrossChatHistory([]);
+    setCrossQuestion('');
+    setHasHydratedChatState(false);
   };
 
   if (!currentUser) {
@@ -77,7 +166,17 @@ export default function VidQueryApp() {
       setVideos(prev => [...prev.filter(v => v.url !== urlInput), nv]);
       setSelectedVideo(nv);
       setUrlInput('');
-      setChatHistory(prev => [...prev, { role: 'assistant', content: `✅ Video processed! Ask me anything about it.` }]);
+      setVideoChatHistories(prev => ({
+        ...prev,
+        [nv.url]: [
+          ...(prev[nv.url] ?? []),
+          { role: 'assistant', content: '✅ Video processed! Ask me anything about it.' },
+        ],
+      }));
+      setVideoQuestionDrafts(prev => ({
+        ...prev,
+        [nv.url]: '',
+      }));
     } catch {
       alert('Failed to process video. Check the URL and make sure the backend is running.');
     } finally { setIsProcessing(false); }
@@ -94,9 +193,16 @@ export default function VidQueryApp() {
         return remaining;
       });
       setSelectedCrossVideos(prev => prev.filter(videoUrl => videoUrl !== url));
-      if (selectedVideo?.url === url) {
-        setChatHistory([]);
-      }
+      setVideoChatHistories(prev => {
+        const next = { ...prev };
+        delete next[url];
+        return next;
+      });
+      setVideoQuestionDrafts(prev => {
+        const next = { ...prev };
+        delete next[url];
+        return next;
+      });
     } catch {
       alert('Failed to remove video. Please try again.');
     } finally {
@@ -106,35 +212,77 @@ export default function VidQueryApp() {
 
   const sendChat = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!question.trim() || !selectedVideo || isLoadingAnswer) return;
-    const q = question; setQuestion('');
-    setChatHistory(prev => [...prev, { role: 'user', content: q }]);
+    if (!selectedVideo || !selectedVideoUrl || !selectedVideoQuestion.trim() || isLoadingAnswer) return;
+    const q = selectedVideoQuestion;
+
+    setVideoQuestionDrafts(prev => ({
+      ...prev,
+      [selectedVideoUrl]: '',
+    }));
+    setVideoChatHistories(prev => ({
+      ...prev,
+      [selectedVideoUrl]: [...(prev[selectedVideoUrl] ?? []), { role: 'user', content: q }],
+    }));
     setIsLoadingAnswer(true);
     try {
-      const res = await api.post('/query', { video_url: selectedVideo.url, question: q });
-      setChatHistory(prev => [...prev, { role: 'assistant', content: res.data.answer }]);
-    } catch { setChatHistory(prev => [...prev, { role: 'assistant', content: 'Sorry, an error occurred.' }]); }
+      const res = await api.post('/query', { video_url: selectedVideoUrl, question: q });
+      setVideoChatHistories(prev => ({
+        ...prev,
+        [selectedVideoUrl]: [...(prev[selectedVideoUrl] ?? []), { role: 'assistant', content: res.data.answer }],
+      }));
+    } catch (error) {
+      const message =
+        axios.isAxiosError(error) && typeof error.response?.data?.detail === 'string'
+          ? error.response.data.detail
+          : 'Sorry, an error occurred.';
+      setVideoChatHistories(prev => ({
+        ...prev,
+        [selectedVideoUrl]: [...(prev[selectedVideoUrl] ?? []), { role: 'assistant', content: message }],
+      }));
+    }
     finally { setIsLoadingAnswer(false); }
   };
 
   const sendCrossQuery = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!question.trim() || isLoadingAnswer) return;
+    if (!crossQuestion.trim() || isLoadingAnswer) return;
     if (selectedCrossVideos.length < 1) {
-      alert('Please select at least one video for cross-video analysis.');
+      setCrossChatHistory(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: 'Please select at least one video for cross-video analysis.',
+          source: 'cross-video',
+        },
+      ]);
       return;
     }
-    const q = question; setQuestion('');
-    setChatHistory(prev => [...prev, { role: 'user', content: q }]);
+    const q = crossQuestion;
+    setCrossQuestion('');
+    setCrossChatHistory(prev => [...prev, { role: 'user', content: q }]);
     setIsLoadingAnswer(true);
     try {
       const res = await api.post('/query/cross', { 
         question: q,
         video_urls: selectedCrossVideos 
       });
-      setChatHistory(prev => [...prev, { role: 'assistant', content: res.data.answer, source: 'cross-video' }]);
-    } catch { setChatHistory(prev => [...prev, { role: 'assistant', content: 'Sorry, an error occurred.' }]); }
+      setCrossChatHistory(prev => [...prev, { role: 'assistant', content: res.data.answer, source: 'cross-video' }]);
+    } catch (error) {
+      const message =
+        axios.isAxiosError(error) && typeof error.response?.data?.detail === 'string'
+          ? error.response.data.detail
+          : 'Sorry, an error occurred.';
+      setCrossChatHistory(prev => [...prev, { role: 'assistant', content: message, source: 'cross-video' }]);
+    }
     finally { setIsLoadingAnswer(false); }
+  };
+
+  const updateSelectedVideoQuestion = (value: string) => {
+    if (!selectedVideoUrl) return;
+    setVideoQuestionDrafts(prev => ({
+      ...prev,
+      [selectedVideoUrl]: value,
+    }));
   };
 
 
@@ -211,9 +359,9 @@ export default function VidQueryApp() {
             ) : (
               <ChatPanel 
                 mode={mode}
-                chatHistory={chatHistory}
-                question={question}
-                onQuestionChange={setQuestion}
+                chatHistory={selectedVideoChatHistory}
+                question={selectedVideoQuestion}
+                onQuestionChange={updateSelectedVideoQuestion}
                 onSend={sendChat}
                 isLoading={isLoadingAnswer}
                 selectedVideo={selectedVideo}
@@ -269,9 +417,9 @@ export default function VidQueryApp() {
                 
                 <ChatPanel 
                   mode={mode}
-                  chatHistory={chatHistory}
-                  question={question}
-                  onQuestionChange={setQuestion}
+                  chatHistory={crossChatHistory}
+                  question={crossQuestion}
+                  onQuestionChange={setCrossQuestion}
                   onSend={sendCrossQuery}
                   isLoading={isLoadingAnswer}
                   selectedVideo={selectedVideo}
@@ -283,17 +431,17 @@ export default function VidQueryApp() {
 
           {/* QUIZ */}
           {mode === 'quiz' && (
-            <QuizPanel selectedVideo={selectedVideo} />
+            <QuizPanel currentUser={currentUser} selectedVideo={selectedVideo} />
           )}
 
           {/* PERSPECTIVES */}
           {mode === 'perspectives' && (
-            <PerspectivesPanel selectedVideo={selectedVideo} />
+            <PerspectivesPanel currentUser={currentUser} selectedVideo={selectedVideo} />
           )}
 
           {/* CONCEPT MAP */}
           {mode === 'concepts' && (
-            <ConceptMapPanel selectedVideo={selectedVideo} />
+            <ConceptMapPanel currentUser={currentUser} selectedVideo={selectedVideo} />
           )}
 
         </main>

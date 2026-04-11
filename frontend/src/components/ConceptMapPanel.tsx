@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Network, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { api } from '../api';
+import { loadFeatureState, saveFeatureState } from '../featureStorage';
 import type { VideoMeta } from '../App';
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
@@ -16,20 +17,74 @@ const LEVEL_COLORS = ['#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899','#f43f5e
 const LEVEL_BG = ['#eef2ff','#f5f3ff','#faf5ff','#fdf4ff','#fdf2f8','#fff1f2'];
 
 interface ConceptMapPanelProps {
+  currentUser: string;
   selectedVideo: VideoMeta | null;
 }
 
-export default function ConceptMapPanel({ selectedVideo }: ConceptMapPanelProps) {
+export default function ConceptMapPanel({
+  currentUser,
+  selectedVideo,
+}: ConceptMapPanelProps) {
   const [conceptGraph, setConceptGraph] = useState<ConceptGraph | null>(null);
   const [isLoadingGraph, setIsLoadingGraph] = useState(false);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [hydratedPersistenceKey, setHydratedPersistenceKey] = useState<string | null>(null);
+
+  const selectedVideoUrl = selectedVideo?.url ?? null;
+  const persistenceKey = selectedVideoUrl
+    ? `concept-map:${currentUser}:${selectedVideoUrl}`
+    : null;
+
+  useEffect(() => {
+    if (!selectedVideoUrl) {
+      setConceptGraph(null);
+      setHoveredNode(null);
+      setHydratedPersistenceKey(null);
+      return;
+    }
+
+    const persisted = loadFeatureState<ConceptGraph>(
+      currentUser,
+      'concept-map',
+      selectedVideoUrl,
+    );
+
+    setConceptGraph(persisted);
+    setHoveredNode(null);
+    setHydratedPersistenceKey(persistenceKey);
+  }, [currentUser, persistenceKey, selectedVideoUrl]);
+
+  useEffect(() => {
+    if (
+      !conceptGraph ||
+      !selectedVideoUrl ||
+      !persistenceKey ||
+      hydratedPersistenceKey !== persistenceKey
+    ) {
+      return;
+    }
+
+    saveFeatureState<ConceptGraph>(
+      currentUser,
+      'concept-map',
+      selectedVideoUrl,
+      conceptGraph,
+    );
+  }, [
+    conceptGraph,
+    currentUser,
+    hydratedPersistenceKey,
+    persistenceKey,
+    selectedVideoUrl,
+  ]);
 
   const loadConceptGraph = async () => {
-    if (!selectedVideo) return;
-    setIsLoadingGraph(true); setConceptGraph(null);
+    if (!selectedVideoUrl) return;
+    setIsLoadingGraph(true);
     try {
-      const res = await api.post('/concept-graph', { video_url: selectedVideo.url });
+      const res = await api.post('/concept-graph', { video_url: selectedVideoUrl });
       setConceptGraph(res.data.graph);
+      setHoveredNode(null);
     } catch { 
       alert('Failed to generate concept graph.'); 
     } finally { 

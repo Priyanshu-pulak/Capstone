@@ -66,6 +66,7 @@ app.add_middleware(
 # In-memory transcript cache
 video_transcripts: dict[str, str] = {}
 video_meta: dict[str, dict] = {}
+video_agents: dict[str, Any] = {}
 
 
 logging.basicConfig(
@@ -183,13 +184,69 @@ def extract_json(text: str) -> dict:
     return json.loads(text)
 
 
+def _get_saved_video_title(video_url: str) -> str | None:
+    with Session(engine) as session:
+        row = session.exec(
+            select(VideoHistory).where(VideoHistory.video_url == video_url)
+        ).first()
+        return row.title if row else None
+
+
+def _get_user_videos(user_id: int) -> list[dict[str, str]]:
+    with Session(engine) as session:
+        rows = session.exec(
+            select(VideoHistory).where(VideoHistory.user_id == user_id)
+        ).all()
+        return [
+            {"video_id": row.video_id, "url": row.video_url, "title": row.title}
+            for row in rows
+        ]
+
+
+def _has_video_history_references(video_url: str) -> bool:
+    with Session(engine) as session:
+        row = session.exec(
+            select(VideoHistory).where(VideoHistory.video_url == video_url)
+        ).first()
+        return row is not None
+
+
+def _ensure_video_meta(video_url: str) -> dict[str, str]:
+    if video_url in video_meta:
+        return video_meta[video_url]
+
+    video_id = get_video_id(video_url) or ""
+    saved_title = _get_saved_video_title(video_url)
+    title = saved_title or (f"Video {video_id[:8]}..." if video_id else video_url[:40])
+    metadata = {"video_id": video_id, "url": video_url, "title": title}
+    video_meta[video_url] = metadata
+    return metadata
+
+
 def _get_or_fetch_transcript(video_url: str) -> str:
     if video_url not in video_transcripts:
         transcript = fetch_transcript(video_url)
         if not transcript:
             raise HTTPException(status_code=404, detail="No transcript found.")
         video_transcripts[video_url] = transcript
+    _ensure_video_meta(video_url)
     return video_transcripts[video_url]
+
+
+def _get_or_build_chatbot_agent(video_url: str):
+    if video_url in video_agents:
+        return video_agents[video_url]
+
+    transcript = _get_or_fetch_transcript(video_url)
+    agent = build_chatbot_chain(video_url, transcript=transcript)
+    if not agent:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to initialize the AI agent for this video.",
+        )
+
+    video_agents[video_url] = agent
+    return agent
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
@@ -254,16 +311,7 @@ async def me(current_user: Optional[dict] = Depends(get_current_user)):
 async def get_history(current_user: Optional[dict] = Depends(get_current_user)):
     if not current_user:
         return {"videos": []}
-    with Session(engine) as session:
-        rows = session.exec(
-            select(VideoHistory).where(VideoHistory.user_id == current_user["id"])
-        ).all()
-        return {
-            "videos": [
-                {"video_id": r.video_id, "url": r.video_url, "title": r.title}
-                for r in rows
-            ]
-        }
+    return {"videos": _get_user_videos(current_user["id"])}
 
 
 # ── Video processing ──────────────────────────────────────────────────────────
@@ -273,19 +321,16 @@ async def process_video(
     current_user: Optional[dict] = Depends(get_current_user),
 ):
     try:
-        video_id = get_video_id(request.video_url)
         transcript = fetch_transcript(request.video_url)
         if not transcript:
             raise HTTPException(
                 status_code=400, detail="No transcript found for this video."
             )
         video_transcripts[request.video_url] = transcript
-        title = f"Video {video_id[:8]}..." if video_id else request.video_url[:40]
-        video_meta[request.video_url] = {
-            "video_id": video_id,
-            "url": request.video_url,
-            "title": title,
-        }
+        metadata = _ensure_video_meta(request.video_url)
+        video_id = metadata["video_id"] or None
+        title = metadata["title"]
+        video_agents.pop(request.video_url, None)
 
         # Persist to user history if logged in
         if current_user:
@@ -319,21 +364,17 @@ async def process_video(
 
 
 @app.get("/videos")
-async def list_videos():
-    return {"videos": list(video_meta.values())}
+async def list_videos(current_user: Optional[dict] = Depends(get_current_user)):
+    if not current_user:
+        return {"videos": []}
+    return {"videos": _get_user_videos(current_user["id"])}
 
 
 # ── Query endpoints ───────────────────────────────────────────────────────────
 @app.post("/query")
 async def query_video(request: QueryRequest) -> dict[str, str]:
     try:
-        agent = build_chatbot_chain(request.video_url)
-
-        if not agent:
-            raise HTTPException(
-                status_code=400,
-                detail="Failed to initialize the AI agent for this video. Ensure the index exists.",
-            )
+        agent = _get_or_build_chatbot_agent(request.video_url)
 
         inputs = {"messages": [("user", request.question)]}
         result = agent.invoke(inputs)
@@ -343,6 +384,8 @@ async def query_video(request: QueryRequest) -> dict[str, str]:
 
         return {"answer": str(final_answer)}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)
 
@@ -359,24 +402,28 @@ async def query_video(request: QueryRequest) -> dict[str, str]:
 
 @app.post("/query/cross")
 async def cross_video_query(request: CrossVideoQueryRequest):
-    if not video_transcripts:
-        raise HTTPException(status_code=400, detail="No videos processed yet.")
-
     target_urls = (
         request.video_urls if request.video_urls else list(video_transcripts.keys())
     )
+    if not target_urls:
+        raise HTTPException(
+            status_code=400, detail="No videos selected for cross-video analysis."
+        )
 
     video_contexts = []
     for url in target_urls:
-        if url in video_transcripts:
-            title = video_meta.get(url, {}).get("title", url)
-            transcript = video_transcripts[url]
-            video_contexts.append(f"[VIDEO: {title}]\n{transcript[:10000]}")
+        try:
+            transcript = _get_or_fetch_transcript(url)
+        except HTTPException:
+            continue
+
+        title = _ensure_video_meta(url)["title"]
+        video_contexts.append(f"[VIDEO: {title}]\n{transcript[:10000]}")
 
     if not video_contexts:
         raise HTTPException(
             status_code=400,
-            detail="None of the selected videos have processed transcripts.",
+            detail="None of the selected videos have available transcripts.",
         )
 
     combined = "\n\n---\n\n".join(video_contexts)
@@ -491,10 +538,6 @@ async def delete_video(
     current_user: Optional[dict] = Depends(get_current_user),
 ):
     url = request.video_url
-    if url in video_transcripts:
-        del video_transcripts[url]
-    if url in video_meta:
-        del video_meta[url]
 
     if current_user:
         with Session(engine) as session:
@@ -507,7 +550,17 @@ async def delete_video(
                 session.delete(item)
             session.commit()
 
-    return {"message": f"Successfully removed {url} from memory"}
+        if _has_video_history_references(url):
+            return {"message": f"Removed {url} from your history."}
+
+    if url in video_transcripts:
+        del video_transcripts[url]
+    if url in video_meta:
+        del video_meta[url]
+    if url in video_agents:
+        del video_agents[url]
+
+    return {"message": f"Removed {url} and cleared runtime cache."}
 
 
 if __name__ == "__main__":

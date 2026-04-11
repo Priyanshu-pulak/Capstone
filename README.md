@@ -275,7 +275,7 @@ VidQuery/
 - User accounts, video history, and saved summaries live in the `vidquery.db` SQLite database
 - Generated FAISS indexes are written to `backend/local_indexes/`
 - JWT auth state is stored in browser `localStorage`
-- The backend also keeps an in-memory transcript cache while the server is running
+- The backend also keeps runtime transcript and agent caches in memory, but those caches are ephemeral and rebuilt on demand
 
 ## Development Notes
 
