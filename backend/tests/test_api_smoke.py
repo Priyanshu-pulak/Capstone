@@ -273,10 +273,12 @@ class TestApiSmoke(unittest.TestCase):
         first_response = self.client.post(
             "/query",
             json={"video_url": video_url, "question": "What is this about?"},
+            headers=headers,
         )
         second_response = self.client.post(
             "/query",
             json={"video_url": video_url, "question": "Give me the summary."},
+            headers=headers,
         )
 
         self.assertEqual(first_response.status_code, 200, first_response.text)
@@ -304,6 +306,7 @@ class TestApiSmoke(unittest.TestCase):
                 "question": "Summarize both videos together.",
                 "video_urls": video_urls,
             },
+            headers=headers,
         )
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -328,14 +331,17 @@ class TestApiSmoke(unittest.TestCase):
                 "num_questions": 3,
                 "quiz_type": "mcq",
             },
+            headers=headers,
         )
         perspectives_response = self.client.post(
             "/summary/perspectives",
             json={"video_url": video_url},
+            headers=headers,
         )
         concept_graph_response = self.client.post(
             "/concept-graph",
             json={"video_url": video_url},
+            headers=headers,
         )
 
         self.assertEqual(quiz_response.status_code, 200, quiz_response.text)
@@ -354,6 +360,39 @@ class TestApiSmoke(unittest.TestCase):
         self.assertIn("beginner_expert", perspectives_json["perspectives"])
         self.assertGreaterEqual(len(concept_graph_json["graph"]["nodes"]), 2)
         self.assertEqual(len(concept_graph_json["graph"]["edges"]), 1)
+
+    def test_video_routes_require_auth_and_history_access(self) -> None:
+        video_url = "https://youtube.com/watch?v=video-six"
+        owner_headers = self.register_user("frank", "frank@example.com")
+        other_user_headers = self.register_user("grace", "grace@example.com")
+        self.process_video(video_url, owner_headers)
+
+        unauthenticated_query = self.client.post(
+            "/query",
+            json={"video_url": video_url, "question": "Can I access this?"},
+        )
+        self.assertEqual(unauthenticated_query.status_code, 401, unauthenticated_query.text)
+
+        unauthorized_query = self.client.post(
+            "/query",
+            json={"video_url": video_url, "question": "Can I access this?"},
+            headers=other_user_headers,
+        )
+        self.assertEqual(unauthorized_query.status_code, 403, unauthorized_query.text)
+
+        unauthorized_cross_query = self.client.post(
+            "/query/cross",
+            json={"question": "Summarize this.", "video_urls": [video_url]},
+            headers=other_user_headers,
+        )
+        self.assertEqual(unauthorized_cross_query.status_code, 403, unauthorized_cross_query.text)
+
+        unauthorized_quiz = self.client.post(
+            "/quiz",
+            json={"video_url": video_url, "num_questions": 2, "quiz_type": "mcq"},
+            headers=other_user_headers,
+        )
+        self.assertEqual(unauthorized_quiz.status_code, 403, unauthorized_quiz.text)
 
 
 if __name__ == "__main__":

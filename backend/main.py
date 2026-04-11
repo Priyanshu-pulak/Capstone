@@ -173,6 +173,14 @@ def get_current_user(
         return None
 
 
+def require_current_user(
+    current_user: Optional[dict] = Depends(get_current_user),
+) -> dict:
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    return current_user
+
+
 def extract_json(text: str) -> dict:
     match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if match:
@@ -201,6 +209,18 @@ def _get_user_videos(user_id: int) -> list[dict[str, str]]:
             {"video_id": row.video_id, "url": row.video_url, "title": row.title}
             for row in rows
         ]
+
+
+def _get_user_video_urls(user_id: int) -> set[str]:
+    return {video["url"] for video in _get_user_videos(user_id)}
+
+
+def _require_user_video_access(user_id: int, video_url: str) -> None:
+    if video_url not in _get_user_video_urls(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="This video is not available in your history.",
+        )
 
 
 def _has_video_history_references(video_url: str) -> bool:
@@ -318,7 +338,7 @@ async def get_history(current_user: Optional[dict] = Depends(get_current_user)):
 @app.post("/process")
 async def process_video(
     request: VideoProcessRequest,
-    current_user: Optional[dict] = Depends(get_current_user),
+    current_user: dict = Depends(require_current_user),
 ):
     try:
         transcript = fetch_transcript(request.video_url)
@@ -332,24 +352,22 @@ async def process_video(
         title = metadata["title"]
         video_agents.pop(request.video_url, None)
 
-        # Persist to user history if logged in
-        if current_user:
-            with Session(engine) as session:
-                existing = session.exec(
-                    select(VideoHistory)
-                    .where(VideoHistory.user_id == current_user["id"])
-                    .where(VideoHistory.video_url == request.video_url)
-                ).first()
-                if not existing:
-                    session.add(
-                        VideoHistory(
-                            user_id=current_user["id"],
-                            video_url=request.video_url,
-                            video_id=video_id or "",
-                            title=title,
-                        )
+        with Session(engine) as session:
+            existing = session.exec(
+                select(VideoHistory)
+                .where(VideoHistory.user_id == current_user["id"])
+                .where(VideoHistory.video_url == request.video_url)
+            ).first()
+            if not existing:
+                session.add(
+                    VideoHistory(
+                        user_id=current_user["id"],
+                        video_url=request.video_url,
+                        video_id=video_id or "",
+                        title=title,
                     )
-                    session.commit()
+                )
+                session.commit()
 
         return {
             "message": "Video processed successfully",
@@ -372,8 +390,12 @@ async def list_videos(current_user: Optional[dict] = Depends(get_current_user)):
 
 # ── Query endpoints ───────────────────────────────────────────────────────────
 @app.post("/query")
-async def query_video(request: QueryRequest) -> dict[str, str]:
+async def query_video(
+    request: QueryRequest,
+    current_user: dict = Depends(require_current_user),
+) -> dict[str, str]:
     try:
+        _require_user_video_access(current_user["id"], request.video_url)
         agent = _get_or_build_chatbot_agent(request.video_url)
 
         inputs = {"messages": [("user", request.question)]}
@@ -401,13 +423,21 @@ async def query_video(request: QueryRequest) -> dict[str, str]:
 
 
 @app.post("/query/cross")
-async def cross_video_query(request: CrossVideoQueryRequest):
-    target_urls = (
-        request.video_urls if request.video_urls else list(video_transcripts.keys())
-    )
+async def cross_video_query(
+    request: CrossVideoQueryRequest,
+    current_user: dict = Depends(require_current_user),
+):
+    available_urls = _get_user_video_urls(current_user["id"])
+    target_urls = request.video_urls if request.video_urls else list(available_urls)
     if not target_urls:
         raise HTTPException(
             status_code=400, detail="No videos selected for cross-video analysis."
+        )
+    unauthorized_urls = [url for url in target_urls if url not in available_urls]
+    if unauthorized_urls:
+        raise HTTPException(
+            status_code=403,
+            detail="One or more selected videos are not available in your history.",
         )
 
     video_contexts = []
@@ -448,7 +478,11 @@ Answer across all videos, citing [VIDEO: ...] labels:
 
 
 @app.post("/quiz")
-async def generate_quiz(request: QuizRequest):
+async def generate_quiz(
+    request: QuizRequest,
+    current_user: dict = Depends(require_current_user),
+):
+    _require_user_video_access(current_user["id"], request.video_url)
     transcript = _get_or_fetch_transcript(request.video_url)
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
@@ -477,7 +511,11 @@ Return ONLY valid JSON, no markdown:
 
 
 @app.post("/summary/perspectives")
-async def perspective_summary(request: PerspectiveSummaryRequest):
+async def perspective_summary(
+    request: PerspectiveSummaryRequest,
+    current_user: dict = Depends(require_current_user),
+):
+    _require_user_video_access(current_user["id"], request.video_url)
     transcript = _get_or_fetch_transcript(request.video_url)
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
@@ -507,7 +545,11 @@ Return ONLY valid JSON, no markdown:
 
 
 @app.post("/concept-graph")
-async def concept_graph(request: ConceptGraphRequest):
+async def concept_graph(
+    request: ConceptGraphRequest,
+    current_user: dict = Depends(require_current_user),
+):
+    _require_user_video_access(current_user["id"], request.video_url)
     transcript = _get_or_fetch_transcript(request.video_url)
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
@@ -535,23 +577,22 @@ Rules: 8-15 concepts, level 0=foundational, labels max 4 words, snake_case IDs."
 @app.post("/videos/delete")
 async def delete_video(
     request: VideoProcessRequest,
-    current_user: Optional[dict] = Depends(get_current_user),
+    current_user: dict = Depends(require_current_user),
 ):
     url = request.video_url
 
-    if current_user:
-        with Session(engine) as session:
-            existing = session.exec(
-                select(VideoHistory)
-                .where(VideoHistory.user_id == current_user["id"])
-                .where(VideoHistory.video_url == url)
-            ).all()
-            for item in existing:
-                session.delete(item)
-            session.commit()
+    with Session(engine) as session:
+        existing = session.exec(
+            select(VideoHistory)
+            .where(VideoHistory.user_id == current_user["id"])
+            .where(VideoHistory.video_url == url)
+        ).all()
+        for item in existing:
+            session.delete(item)
+        session.commit()
 
-        if _has_video_history_references(url):
-            return {"message": f"Removed {url} from your history."}
+    if _has_video_history_references(url):
+        return {"message": f"Removed {url} from your history."}
 
     if url in video_transcripts:
         del video_transcripts[url]
