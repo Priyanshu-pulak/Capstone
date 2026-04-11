@@ -41,7 +41,8 @@ const LEVEL_BG = ['#eef2ff','#f5f3ff','#faf5ff','#fdf4ff','#fdf2f8','#fff1f2'];
 
 
 export default function VidQueryApp() {
-  const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('vq_username'));
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
   const [mode, setMode] = useState<Mode>('chat');
   const [videos, setVideos] = useState<VideoMeta[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<VideoMeta | null>(null);
@@ -61,6 +62,24 @@ export default function VidQueryApp() {
   const selectedVideoUrl = selectedVideo?.url ?? null;
   const selectedVideoChatHistory = selectedVideoUrl ? (videoChatHistories[selectedVideoUrl] ?? []) : [];
   const selectedVideoQuestion = selectedVideoUrl ? (videoQuestionDrafts[selectedVideoUrl] ?? '') : '';
+
+  useEffect(() => {
+    api.get('/auth/me')
+      .then((res) => {
+        const username = res.data.username as string;
+        localStorage.setItem('vq_username', username);
+        localStorage.removeItem('vq_token');
+        setCurrentUser(username);
+      })
+      .catch(() => {
+        localStorage.removeItem('vq_username');
+        localStorage.removeItem('vq_token');
+        setCurrentUser(null);
+      })
+      .finally(() => {
+        setIsRestoringSession(false);
+      });
+  }, []);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -133,13 +152,19 @@ export default function VidQueryApp() {
     videoQuestionDrafts,
   ]);
 
-  const handleAuth = (token: string, username: string) => {
-    localStorage.setItem('vq_token', token);
+  const handleAuth = (username: string) => {
     localStorage.setItem('vq_username', username);
+    localStorage.removeItem('vq_token');
     setCurrentUser(username);
+    setIsRestoringSession(false);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Clear local auth state even if the backend is unavailable.
+    }
     localStorage.removeItem('vq_token');
     localStorage.removeItem('vq_username');
     setCurrentUser(null);
@@ -153,7 +178,20 @@ export default function VidQueryApp() {
     setCrossChatHistory([]);
     setCrossQuestion('');
     setHasHydratedChatState(false);
+    setIsRestoringSession(false);
   };
+
+  if (isRestoringSession) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center gap-3 text-slate-600"
+        style={{ background: 'linear-gradient(135deg, #eef2ff 0%, #ddd6fe 100%)' }}
+      >
+        <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
+        <span className="text-sm font-medium">Restoring your session...</span>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return <AuthPage onAuth={handleAuth} />;

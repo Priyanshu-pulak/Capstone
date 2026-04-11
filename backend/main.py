@@ -1,12 +1,13 @@
 from pydantic import BaseModel, Field, EmailStr
 from typing import Annotated
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
 import json
 import re
+import secrets
 from typing import Optional
 from copy import deepcopy
 from dotenv import load_dotenv
@@ -29,6 +30,12 @@ from jose import JWTError, jwt
 
 from typing import Any
 
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 def extract_clean_answer(content: str | list[dict[str, Any]]) -> str:
     """Safely extracts the final text from model output, filtering out thinking blocks."""
     # If the model didn't use a thinking block and just returned a string
@@ -46,11 +53,61 @@ def extract_clean_answer(content: str | list[dict[str, Any]]) -> str:
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-
-SECRET_KEY = os.getenv("SECRET_KEY", "vidquery-secret-key-change-in-production")
+APP_ENV = os.getenv("VIDQUERY_ENV", "development").strip().lower() or "development"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 72
+SESSION_COOKIE_NAME = "vq_access_token"
+DEFAULT_DEV_CORS_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+WEAK_SECRET_KEY_VALUES = {
+    "",
+    "replace-this-with-a-long-random-secret",
+    "vidquery-secret-key-change-in-production",
+    "your_secret_key_here",
+}
+
+
+def _parse_cors_origins(raw_origins: str | None) -> list[str]:
+    if not raw_origins:
+        return DEFAULT_DEV_CORS_ORIGINS.copy()
+
+    parsed_origins = [
+        origin.strip().rstrip("/")
+        for origin in raw_origins.split(",")
+        if origin.strip()
+    ]
+    return parsed_origins or DEFAULT_DEV_CORS_ORIGINS.copy()
+
+
+def _resolve_secret_key() -> str:
+    configured_secret = os.getenv("SECRET_KEY", "").strip()
+    if configured_secret and configured_secret not in WEAK_SECRET_KEY_VALUES:
+        return configured_secret
+
+    if APP_ENV == "production":
+        raise RuntimeError(
+            "SECRET_KEY must be set to a strong value when VIDQUERY_ENV=production."
+        )
+
+    logger.warning(
+        "Using an ephemeral development SECRET_KEY. "
+        "Set SECRET_KEY in backend/.env to keep sessions stable across restarts."
+    )
+    return secrets.token_urlsafe(32)
+
+
+SECRET_KEY = _resolve_secret_key()
+COOKIE_SECURE = APP_ENV == "production"
+COOKIE_MAX_AGE_SECONDS = ACCESS_TOKEN_EXPIRE_HOURS * 60 * 60
+CORS_ORIGINS = _parse_cors_origins(os.getenv("CORS_ORIGINS"))
+
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -58,10 +115,10 @@ bearer_scheme = HTTPBearer(auto_error=False)
 app = FastAPI(title="VidQuery API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # In-memory transcript cache
@@ -75,11 +132,6 @@ feature_results_cache: dict[str, dict[tuple[Any, ...], dict[str, Any]]] = {
 }
 model_cache: dict[str, Any] = {}
 
-
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
 INVALID_YOUTUBE_URL_DETAIL = (
     "Invalid YouTube URL. Please provide a valid video link or 11-character video ID."
 )
@@ -172,18 +224,50 @@ def create_token(user_id: int, username: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def _set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+        max_age=COOKIE_MAX_AGE_SECONDS,
+        expires=COOKIE_MAX_AGE_SECONDS,
+        path="/",
+    )
+
+
+def _clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+    )
+
+
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> dict | None:
-    if not credentials:
-        return None
-    try:
-        payload = jwt.decode(
-            credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM]
-        )
-        return {"id": int(payload["sub"]), "username": payload["username"]}
-    except JWTError:
-        return None
+    token_candidates: list[str] = []
+
+    if credentials and credentials.credentials:
+        token_candidates.append(credentials.credentials)
+
+    cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if cookie_token and cookie_token not in token_candidates:
+        token_candidates.append(cookie_token)
+
+    for token in token_candidates:
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            return {"id": int(payload["sub"]), "username": payload["username"]}
+        except JWTError:
+            continue
+
+    return None
 
 
 def require_current_user(
@@ -348,7 +432,7 @@ async def health():
 
 # ── Auth endpoints ────────────────────────────────────────────────────────────
 @app.post("/auth/register")
-async def register(req: RegisterRequest):
+async def register(req: RegisterRequest, response: Response):
     with Session(engine) as session:
         if session.exec(select(User).where(User.email == req.email)).first():
             raise HTTPException(status_code=400, detail="Email already registered.")
@@ -363,24 +447,37 @@ async def register(req: RegisterRequest):
         session.commit()
         session.refresh(user)
         token = create_token(user.id, user.username)
+        _set_auth_cookie(response, token)
         return {"token": token, "username": user.username, "email": user.email}
 
 
 @app.post("/auth/login")
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, response: Response):
     with Session(engine) as session:
         user = session.exec(select(User).where(User.email == req.email)).first()
         if not user or not verify_password(req.password, user.hashed_password):
             raise HTTPException(status_code=401, detail="Invalid email or password.")
         token = create_token(user.id, user.username)
+        _set_auth_cookie(response, token)
         return {"token": token, "username": user.username, "email": user.email}
 
 
 @app.get("/auth/me")
-async def me(current_user: Optional[dict] = Depends(get_current_user)):
+async def me(
+    response: Response,
+    current_user: Optional[dict] = Depends(get_current_user),
+):
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated.")
+    refreshed_token = create_token(current_user["id"], current_user["username"])
+    _set_auth_cookie(response, refreshed_token)
     return current_user
+
+
+@app.post("/auth/logout")
+async def logout(response: Response):
+    _clear_auth_cookie(response)
+    return {"message": "Logged out successfully."}
 
 
 @app.get("/history")

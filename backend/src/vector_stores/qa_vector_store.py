@@ -12,16 +12,15 @@ def build_qa_vector_store(
     video_id: str
 ) -> FAISS:
     save_path = INDEX_DIR / f"{video_id}_qa"
-    
-    if save_path.exists():
-        print(f"Loading existing QA FAISS index for video {video_id}...")
-        return FAISS.load_local(
-            str(save_path), 
-            embedding_model, 
-            allow_dangerous_deserialization=True
-        )
 
-    print(f"Building new QA FAISS index for video {video_id}...")
+    if save_path.exists():
+        print(
+            f"Refreshing existing QA FAISS index for video {video_id} "
+            "from trusted transcript chunks..."
+        )
+    else:
+        print(f"Building new QA FAISS index for video {video_id}...")
+
     qa_vector_store = FAISS.from_documents(
         documents=chunks,
         embedding=embedding_model

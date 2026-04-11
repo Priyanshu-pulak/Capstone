@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-export const api = axios.create({ baseURL: '/api' });
+export const api = axios.create({
+  baseURL: '/api',
+  withCredentials: true,
+});
 
 api.interceptors.request.use(cfg => {
   const token = localStorage.getItem('vq_token');

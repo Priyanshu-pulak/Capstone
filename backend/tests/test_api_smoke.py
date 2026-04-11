@@ -247,7 +247,13 @@ class TestApiSmoke(unittest.TestCase):
         for cache in app_module.feature_results_cache.values():
             cache.clear()
 
-    def register_user(self, username: str, email: str) -> dict[str, str]:
+    def register_user(
+        self,
+        username: str,
+        email: str,
+        *,
+        keep_session_cookie: bool = False,
+    ) -> dict[str, str]:
         response = self.client.post(
             "/auth/register",
             json={
@@ -258,6 +264,8 @@ class TestApiSmoke(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         token = response.json()["token"]
+        if not keep_session_cookie:
+            self.client.cookies.clear()
         return {"Authorization": f"Bearer {token}"}
 
     def process_video(self, video_url: str, headers: dict[str, str]) -> None:
@@ -493,6 +501,41 @@ class TestApiSmoke(unittest.TestCase):
             response.json()["detail"],
             "The AI returned an unreadable response. Please try again.",
         )
+
+    def test_auth_cookie_session_round_trip(self) -> None:
+        response = self.client.post(
+            "/auth/register",
+            json={
+                "username": "jules",
+                "email": "jules@example.com",
+                "password": "password123",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("vq_access_token=", response.headers.get("set-cookie", ""))
+        self.assertIn("HttpOnly", response.headers.get("set-cookie", ""))
+
+        me_response = self.client.get("/auth/me")
+        self.assertEqual(me_response.status_code, 200, me_response.text)
+        self.assertEqual(me_response.json()["username"], "jules")
+
+        logout_response = self.client.post("/auth/logout")
+        self.assertEqual(logout_response.status_code, 200, logout_response.text)
+
+        me_after_logout = self.client.get("/auth/me")
+        self.assertEqual(me_after_logout.status_code, 401, me_after_logout.text)
+
+    def test_auth_me_upgrades_legacy_bearer_session_to_cookie(self) -> None:
+        headers = self.register_user("kai", "kai@example.com")
+
+        me_response = self.client.get("/auth/me", headers=headers)
+        self.assertEqual(me_response.status_code, 200, me_response.text)
+        self.assertEqual(me_response.json()["username"], "kai")
+        self.assertIn("vq_access_token=", me_response.headers.get("set-cookie", ""))
+
+        cookie_only_response = self.client.get("/auth/me")
+        self.assertEqual(cookie_only_response.status_code, 200, cookie_only_response.text)
+        self.assertEqual(cookie_only_response.json()["username"], "kai")
 
 
 if __name__ == "__main__":

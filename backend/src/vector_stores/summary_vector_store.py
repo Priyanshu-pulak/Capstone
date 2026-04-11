@@ -37,19 +37,17 @@ def build_summary_vector_store(
 ) -> FAISS:
     
     save_path = INDEX_DIR / f"{video_id}_summary"
-    
-    if save_path.exists():
-        print(f"Loading existing Summary FAISS index for video {video_id}...")
-        return FAISS.load_local(
-            str(save_path), 
-            embedding_model, 
-            allow_dangerous_deserialization=True
-        )
 
     existing_summary_text = get_saved_summary(video_id)
     
     if existing_summary_text:
-        print("Found existing summary in database. Skipping LLM generation.")
+        if save_path.exists():
+            print(
+                "Found existing summary in database. Refreshing Summary FAISS index "
+                "from trusted saved text."
+            )
+        else:
+            print("Found existing summary in database. Skipping LLM generation.")
         final_summaries = [Document(page_content=existing_summary_text)]
     else:
         print("No existing summary found. Generating new summaries via LLM...")

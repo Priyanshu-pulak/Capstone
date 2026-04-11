@@ -28,7 +28,7 @@ VidQuery is a full-stack YouTube learning assistant. It combines a FastAPI backe
 
 - `React 18 + Vite + TypeScript`
 - Component-based UI with dedicated panels for chat, quiz, perspectives, and concept maps
-- `Axios` API client with JWT token injection
+- `Axios` API client with cookie-backed auth and legacy bearer-token fallback
 - `Framer Motion`, `lucide-react`, `clsx`, and `tailwind-merge` for UI behavior/styling
 
 ## How The App Works
@@ -75,14 +75,18 @@ cp backend/.env.example backend/.env
 Then set:
 
 ```env
+VIDQUERY_ENV=development
 GOOGLE_API_KEY=your_google_api_key
 SECRET_KEY=your_secret_key_here
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
 Notes:
 
 - `GOOGLE_API_KEY` is required
 - `SECRET_KEY` should always be set to a long random value outside throwaway local testing
+- `VIDQUERY_ENV=production` now requires a real `SECRET_KEY`; development falls back to an ephemeral secret only if you forget to set one
+- `CORS_ORIGINS` should list the allowed frontend origins as a comma-separated string
 
 ## Getting Started
 
@@ -276,7 +280,7 @@ VidQuery/
 
 - User accounts, video history, and saved summaries live in the `vidquery.db` SQLite database
 - Generated FAISS indexes are written to `backend/local_indexes/`
-- JWT auth state is stored in browser `localStorage`
+- Auth now uses an HttpOnly session cookie in the browser; `localStorage` is only used for lightweight UI state such as the saved username and per-user panel data
 - The backend also keeps runtime transcript and agent caches in memory, but those caches are ephemeral and rebuilt on demand
 
 ## Development Notes

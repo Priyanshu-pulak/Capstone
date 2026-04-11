@@ -3,14 +3,14 @@ import { Video, User as UserIcon, Mail, Lock, Loader2, UserPlus } from 'lucide-r
 import { motion } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { api } from '../api';
+import { api, getApiErrorMessage } from '../api';
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
 type AuthView = 'login' | 'signup';
 
 interface AuthPageProps {
-  onAuth: (token: string, username: string) => void;
+  onAuth: (username: string) => void;
 }
 
 export default function AuthPage({ onAuth }: AuthPageProps) {
@@ -27,13 +27,13 @@ export default function AuthPage({ onAuth }: AuthPageProps) {
     try {
       if (view === 'signup') {
         const res = await api.post('/auth/register', { username, email, password });
-        onAuth(res.data.token, res.data.username);
+        onAuth(res.data.username);
       } else {
         const res = await api.post('/auth/login', { email, password });
-        onAuth(res.data.token, res.data.username);
+        onAuth(res.data.username);
       }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Something went wrong.');
+    } catch (error) {
+      setError(getApiErrorMessage(error, 'Something went wrong.'));
     } finally {
       setLoading(false);
     }
