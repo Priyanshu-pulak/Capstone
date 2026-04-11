@@ -17,11 +17,12 @@ interface SidebarProps {
   isProcessing: boolean;
   removingVideoUrl: string | null;
   mode: Mode;
+  errorMessage?: string | null;
 }
 
 export default function Sidebar({
   videos, selectedVideo, onSelectVideo, onRemoveVideo,
-  urlInput, onUrlInputChange, onAddVideo, isProcessing, removingVideoUrl, mode
+  urlInput, onUrlInputChange, onAddVideo, isProcessing, removingVideoUrl, mode, errorMessage
 }: SidebarProps) {
   return (
     <aside className="w-64 bg-white/50 backdrop-blur-md border-r border-slate-200/60 flex flex-col p-4 gap-3 overflow-y-auto flex-shrink-0">
@@ -30,11 +31,16 @@ export default function Sidebar({
         <input value={urlInput} onChange={e => onUrlInputChange(e.target.value)} onKeyDown={e => e.key === 'Enter' && onAddVideo()}
           placeholder="YouTube URL..."
           className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
-        <button onClick={onAddVideo} disabled={isProcessing || !urlInput}
+        <button onClick={onAddVideo} disabled={isProcessing || !urlInput.trim()}
           className="w-8 h-8 flex-shrink-0 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 flex items-center justify-center transition-all">
           {isProcessing ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" /> : <Plus className="w-3.5 h-3.5 text-white" />}
         </button>
       </div>
+      {errorMessage && (
+        <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {errorMessage}
+        </div>
+      )}
       {videos.length === 0
         ? <div className="text-xs text-slate-400 text-center py-6">Add a YouTube video to start</div>
         : (<div className="flex flex-col gap-1.5">

@@ -3,7 +3,7 @@ import { Network, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { api } from '../api';
+import { api, getApiErrorMessage } from '../api';
 import { loadFeatureState, saveFeatureState } from '../featureStorage';
 import type { VideoMeta } from '../App';
 
@@ -29,6 +29,7 @@ export default function ConceptMapPanel({
   const [isLoadingGraph, setIsLoadingGraph] = useState(false);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [hydratedPersistenceKey, setHydratedPersistenceKey] = useState<string | null>(null);
+  const [conceptGraphError, setConceptGraphError] = useState<string | null>(null);
 
   const selectedVideoUrl = selectedVideo?.url ?? null;
   const persistenceKey = selectedVideoUrl
@@ -39,6 +40,7 @@ export default function ConceptMapPanel({
     if (!selectedVideoUrl) {
       setConceptGraph(null);
       setHoveredNode(null);
+      setConceptGraphError(null);
       setHydratedPersistenceKey(null);
       return;
     }
@@ -51,6 +53,7 @@ export default function ConceptMapPanel({
 
     setConceptGraph(persisted);
     setHoveredNode(null);
+    setConceptGraphError(null);
     setHydratedPersistenceKey(persistenceKey);
   }, [currentUser, persistenceKey, selectedVideoUrl]);
 
@@ -80,13 +83,16 @@ export default function ConceptMapPanel({
 
   const loadConceptGraph = async () => {
     if (!selectedVideoUrl) return;
+    setConceptGraphError(null);
     setIsLoadingGraph(true);
     try {
       const res = await api.post('/concept-graph', { video_url: selectedVideoUrl });
       setConceptGraph(res.data.graph);
       setHoveredNode(null);
-    } catch { 
-      alert('Failed to generate concept graph.'); 
+    } catch (error) {
+      setConceptGraphError(
+        getApiErrorMessage(error, 'Failed to generate concept graph. Please try again.'),
+      );
     } finally { 
       setIsLoadingGraph(false); 
     }
@@ -128,6 +134,11 @@ export default function ConceptMapPanel({
             {isLoadingGraph ? <><Loader2 className="w-4 h-4 animate-spin" />Mapping...</> : <><Network className="w-4 h-4" />Generate Map</>}
           </button>
         </div>
+        {conceptGraphError && (
+          <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {conceptGraphError}
+          </div>
+        )}
         
         {conceptGraph && (() => {
           const pos = getGraphLayout(conceptGraph);

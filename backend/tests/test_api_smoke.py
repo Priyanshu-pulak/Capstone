@@ -452,6 +452,48 @@ class TestApiSmoke(unittest.TestCase):
         )
         self.assertEqual(unauthorized_quiz.status_code, 403, unauthorized_quiz.text)
 
+    def test_process_rejects_invalid_youtube_url_with_helpful_message(self) -> None:
+        headers = self.register_user("harry", "harry@example.com")
+
+        with patch.object(app_module, "get_video_id", return_value=None):
+            response = self.client.post(
+                "/process",
+                json={"video_url": "https://example.com/not-youtube"},
+                headers=headers,
+            )
+
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertEqual(
+            response.json()["detail"],
+            "Invalid YouTube URL. Please provide a valid video link or 11-character video ID.",
+        )
+
+    def test_quiz_surfaces_unreadable_model_output_as_502(self) -> None:
+        video_url = "https://youtube.com/watch?v=video-seven"
+        headers = self.register_user("ivy", "ivy@example.com")
+        self.process_video(video_url, headers)
+
+        broken_model = SimpleNamespace(
+            generate_content=lambda _prompt: FakeGenerativeResponse("not valid json"),
+        )
+
+        with patch.object(app_module, "_get_generative_model", return_value=broken_model):
+            response = self.client.post(
+                "/quiz",
+                json={
+                    "video_url": video_url,
+                    "num_questions": 3,
+                    "quiz_type": "mcq",
+                },
+                headers=headers,
+            )
+
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertEqual(
+            response.json()["detail"],
+            "The AI returned an unreadable response. Please try again.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

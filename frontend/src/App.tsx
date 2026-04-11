@@ -1,11 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Youtube, MessageSquare, Sparkles, Loader2, Video, Plus, Link2, BookOpen, CheckCircle, XCircle, ChevronDown, Trash2, Network, Eye, ArrowRight, LogOut, User as UserIcon, Lock, Mail, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-import { api } from './api';
+import { api, getApiErrorMessage } from './api';
 import AuthPage from './components/AuthPage';
 import Sidebar from './components/SideBar';
 import ChatPanel from './components/ChatPanel';
@@ -50,6 +49,7 @@ export default function VidQueryApp() {
   const [urlInput, setUrlInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [removingVideoUrl, setRemovingVideoUrl] = useState<string | null>(null);
+  const [sidebarError, setSidebarError] = useState<string | null>(null);
 
   const [videoChatHistories, setVideoChatHistories] = useState<Record<string, Message[]>>({});
   const [videoQuestionDrafts, setVideoQuestionDrafts] = useState<Record<string, string>>({});
@@ -146,6 +146,8 @@ export default function VidQueryApp() {
     setVideos([]);
     setSelectedVideo(null);
     setSelectedCrossVideos([]);
+    setUrlInput('');
+    setSidebarError(null);
     setVideoChatHistories({});
     setVideoQuestionDrafts({});
     setCrossChatHistory([]);
@@ -158,12 +160,19 @@ export default function VidQueryApp() {
   }
 
   const addVideo = async () => {
-    if (!urlInput.trim()) return;
+    const trimmedUrl = urlInput.trim();
+    if (!trimmedUrl) return;
+
+    setSidebarError(null);
     setIsProcessing(true);
     try {
-      const res = await api.post('/process', { video_url: urlInput });
-      const nv: VideoMeta = { video_id: res.data.video_id, url: urlInput, title: res.data.title || `Video ${res.data.video_id?.slice(0,8)}...` };
-      setVideos(prev => [...prev.filter(v => v.url !== urlInput), nv]);
+      const res = await api.post('/process', { video_url: trimmedUrl });
+      const nv: VideoMeta = {
+        video_id: res.data.video_id,
+        url: trimmedUrl,
+        title: res.data.title || `Video ${res.data.video_id?.slice(0,8)}...`,
+      };
+      setVideos(prev => [...prev.filter(v => v.url !== trimmedUrl), nv]);
       setSelectedVideo(nv);
       setUrlInput('');
       setVideoChatHistories(prev => ({
@@ -177,13 +186,19 @@ export default function VidQueryApp() {
         ...prev,
         [nv.url]: '',
       }));
-    } catch {
-      alert('Failed to process video. Check the URL and make sure the backend is running.');
+    } catch (error) {
+      setSidebarError(
+        getApiErrorMessage(
+          error,
+          'Failed to process video. Check the URL and make sure the backend is running.',
+        ),
+      );
     } finally { setIsProcessing(false); }
   };
 
   const removeVideo = async (url: string) => {
     if (removingVideoUrl) return;
+    setSidebarError(null);
     setRemovingVideoUrl(url);
     try {
       await api.post('/videos/delete', { video_url: url });
@@ -203,8 +218,10 @@ export default function VidQueryApp() {
         delete next[url];
         return next;
       });
-    } catch {
-      alert('Failed to remove video. Please try again.');
+    } catch (error) {
+      setSidebarError(
+        getApiErrorMessage(error, 'Failed to remove video. Please try again.'),
+      );
     } finally {
       setRemovingVideoUrl(null);
     }
@@ -231,10 +248,7 @@ export default function VidQueryApp() {
         [selectedVideoUrl]: [...(prev[selectedVideoUrl] ?? []), { role: 'assistant', content: res.data.answer }],
       }));
     } catch (error) {
-      const message =
-        axios.isAxiosError(error) && typeof error.response?.data?.detail === 'string'
-          ? error.response.data.detail
-          : 'Sorry, an error occurred.';
+      const message = getApiErrorMessage(error, 'Sorry, an error occurred.');
       setVideoChatHistories(prev => ({
         ...prev,
         [selectedVideoUrl]: [...(prev[selectedVideoUrl] ?? []), { role: 'assistant', content: message }],
@@ -268,10 +282,7 @@ export default function VidQueryApp() {
       });
       setCrossChatHistory(prev => [...prev, { role: 'assistant', content: res.data.answer, source: 'cross-video' }]);
     } catch (error) {
-      const message =
-        axios.isAxiosError(error) && typeof error.response?.data?.detail === 'string'
-          ? error.response.data.detail
-          : 'Sorry, an error occurred.';
+      const message = getApiErrorMessage(error, 'Sorry, an error occurred.');
       setCrossChatHistory(prev => [...prev, { role: 'assistant', content: message, source: 'cross-video' }]);
     }
     finally { setIsLoadingAnswer(false); }
@@ -338,11 +349,17 @@ export default function VidQueryApp() {
           onSelectVideo={(v) => setSelectedVideo(v)}
           onRemoveVideo={removeVideo}
           urlInput={urlInput}
-          onUrlInputChange={(url) => setUrlInput(url)}
+          onUrlInputChange={(url) => {
+            setUrlInput(url);
+            if (sidebarError) {
+              setSidebarError(null);
+            }
+          }}
           onAddVideo={addVideo}
           isProcessing={isProcessing}
           removingVideoUrl={removingVideoUrl}
           mode={mode}
+          errorMessage={sidebarError}
         />
 
         {/* Main content area */}

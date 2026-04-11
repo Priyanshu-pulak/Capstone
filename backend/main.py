@@ -80,6 +80,12 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+INVALID_YOUTUBE_URL_DETAIL = (
+    "Invalid YouTube URL. Please provide a valid video link or 11-character video ID."
+)
+INVALID_MODEL_RESPONSE_DETAIL = (
+    "The AI returned an unreadable response. Please try again."
+)
 
 
 def _database_is_available() -> bool:
@@ -199,6 +205,17 @@ def extract_json(text: str) -> dict:
     return json.loads(text)
 
 
+def parse_model_json(text: str) -> dict:
+    try:
+        return extract_json(text)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning("Model returned invalid JSON output.", exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail=INVALID_MODEL_RESPONSE_DETAIL,
+        ) from exc
+
+
 def _get_saved_video_title(video_url: str) -> str | None:
     with Session(engine) as session:
         row = session.exec(
@@ -251,6 +268,11 @@ def _ensure_video_meta(video_url: str) -> dict[str, str]:
 
 
 def _get_or_fetch_transcript(video_url: str) -> str:
+    if not get_video_id(video_url):
+        raise HTTPException(
+            status_code=400,
+            detail=INVALID_YOUTUBE_URL_DETAIL,
+        )
     if video_url not in video_transcripts:
         transcript = fetch_transcript(video_url)
         if not transcript:
@@ -375,6 +397,11 @@ async def process_video(
     current_user: dict = Depends(require_current_user),
 ):
     try:
+        if not get_video_id(request.video_url):
+            raise HTTPException(
+                status_code=400,
+                detail=INVALID_YOUTUBE_URL_DETAIL,
+            )
         transcript = fetch_transcript(request.video_url)
         if not transcript:
             raise HTTPException(
@@ -536,8 +563,10 @@ Transcript: {transcript[:25000]}
 Return ONLY valid JSON, no markdown:
 {{"questions":[{{"question":"...","answer":"...","explanation":"..."}}]}}"""
         response = model.generate_content(prompt)
-        result = {"quiz": extract_json(response.text), "quiz_type": request.quiz_type}
+        result = {"quiz": parse_model_json(response.text), "quiz_type": request.quiz_type}
         return _cache_feature_result("quiz", cache_key, result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
@@ -573,8 +602,10 @@ Return ONLY valid JSON, no markdown:
   "beginner_expert": {{"emoji":"🧠","title":"Beginner vs Expert","beginner":"2-3 sentences","expert":"2-3 sentences","bridge":"..."}}
 }}"""
         response = model.generate_content(prompt)
-        result = {"perspectives": extract_json(response.text)}
+        result = {"perspectives": parse_model_json(response.text)}
         return _cache_feature_result("perspectives", cache_key, result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)
 
@@ -608,8 +639,10 @@ Return ONLY valid JSON, no markdown:
 {{"nodes":[{{"id":"snake_id","label":"Short Label","level":0,"description":"One sentence."}}],"edges":[{{"from":"id1","to":"id2","label":"prerequisite for"}}]}}
 Rules: 8-15 concepts, level 0=foundational, labels max 4 words, snake_case IDs."""
         response = model.generate_content(prompt)
-        result = {"graph": extract_json(response.text)}
+        result = {"graph": parse_model_json(response.text)}
         return _cache_feature_result("concept_graph", cache_key, result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)
 

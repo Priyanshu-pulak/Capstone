@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Eye, Loader2, Sparkles, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { api } from '../api';
+import { api, getApiErrorMessage } from '../api';
 import { loadFeatureState, saveFeatureState } from '../featureStorage';
 import type { VideoMeta } from '../App';
 
@@ -24,6 +24,7 @@ export default function PerspectivesPanel({
   const [perspectives, setPerspectives] = useState<PerspectiveData | null>(null);
   const [isLoadingPerspectives, setIsLoadingPerspectives] = useState(false);
   const [hydratedPersistenceKey, setHydratedPersistenceKey] = useState<string | null>(null);
+  const [perspectivesError, setPerspectivesError] = useState<string | null>(null);
 
   const selectedVideoUrl = selectedVideo?.url ?? null;
   const persistenceKey = selectedVideoUrl
@@ -33,6 +34,7 @@ export default function PerspectivesPanel({
   useEffect(() => {
     if (!selectedVideoUrl) {
       setPerspectives(null);
+      setPerspectivesError(null);
       setHydratedPersistenceKey(null);
       return;
     }
@@ -44,6 +46,7 @@ export default function PerspectivesPanel({
     );
 
     setPerspectives(persisted);
+    setPerspectivesError(null);
     setHydratedPersistenceKey(persistenceKey);
   }, [currentUser, persistenceKey, selectedVideoUrl]);
 
@@ -73,12 +76,15 @@ export default function PerspectivesPanel({
 
   const loadPerspectives = async () => {
     if (!selectedVideoUrl) return;
+    setPerspectivesError(null);
     setIsLoadingPerspectives(true);
     try {
       const res = await api.post('/summary/perspectives', { video_url: selectedVideoUrl });
       setPerspectives(res.data.perspectives);
-    } catch { 
-      alert('Failed to generate perspectives.'); 
+    } catch (error) {
+      setPerspectivesError(
+        getApiErrorMessage(error, 'Failed to generate perspectives. Please try again.'),
+      );
     } finally { 
       setIsLoadingPerspectives(false); 
     }
@@ -108,6 +114,11 @@ export default function PerspectivesPanel({
             {isLoadingPerspectives ? <><Loader2 className="w-4 h-4 animate-spin" />Analyzing...</> : <><Sparkles className="w-4 h-4" />Generate</>}
           </button>
         </div>
+        {perspectivesError && (
+          <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {perspectivesError}
+          </div>
+        )}
         
         {perspectives && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

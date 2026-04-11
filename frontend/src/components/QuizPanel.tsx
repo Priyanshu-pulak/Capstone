@@ -10,7 +10,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { api } from '../api';
+import { api, getApiErrorMessage } from '../api';
 import { loadFeatureState, saveFeatureState } from '../featureStorage';
 import type { VideoMeta } from '../App';
 
@@ -56,6 +56,7 @@ export default function QuizPanel({ currentUser, selectedVideo }: QuizPanelProps
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string>>({});
   const [revealedAnswers, setRevealedAnswers] = useState<Record<number, boolean>>({});
   const [hydratedPersistenceKey, setHydratedPersistenceKey] = useState<string | null>(null);
+  const [quizError, setQuizError] = useState<string | null>(null);
 
   const selectedVideoUrl = selectedVideo?.url ?? null;
   const persistenceKey = selectedVideoUrl ? `quiz:${currentUser}:${selectedVideoUrl}` : null;
@@ -67,6 +68,7 @@ export default function QuizPanel({ currentUser, selectedVideo }: QuizPanelProps
       setQuiz([]);
       setSelectedAnswers({});
       setRevealedAnswers({});
+      setQuizError(null);
       setHydratedPersistenceKey(null);
       return;
     }
@@ -82,6 +84,7 @@ export default function QuizPanel({ currentUser, selectedVideo }: QuizPanelProps
     setQuiz(persisted?.quiz ?? []);
     setSelectedAnswers(persisted?.selectedAnswers ?? {});
     setRevealedAnswers(persisted?.revealedAnswers ?? {});
+    setQuizError(null);
     setHydratedPersistenceKey(persistenceKey);
   }, [currentUser, persistenceKey, selectedVideoUrl]);
 
@@ -112,6 +115,7 @@ export default function QuizPanel({ currentUser, selectedVideo }: QuizPanelProps
   const generateQuiz = async () => {
     if (!selectedVideoUrl) return;
 
+    setQuizError(null);
     setIsGeneratingQuiz(true);
     try {
       const res = await api.post('/quiz', {
@@ -122,8 +126,8 @@ export default function QuizPanel({ currentUser, selectedVideo }: QuizPanelProps
       setQuiz(res.data.quiz.questions || []);
       setSelectedAnswers({});
       setRevealedAnswers({});
-    } catch {
-      alert('Failed to generate quiz. Please try again.');
+    } catch (error) {
+      setQuizError(getApiErrorMessage(error, 'Failed to generate quiz. Please try again.'));
     } finally {
       setIsGeneratingQuiz(false);
     }
@@ -190,6 +194,11 @@ export default function QuizPanel({ currentUser, selectedVideo }: QuizPanelProps
               )}
             </button>
           </div>
+          {quizError && (
+            <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {quizError}
+            </div>
+          )}
         </div>
 
         <AnimatePresence>

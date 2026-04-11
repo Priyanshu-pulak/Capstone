@@ -7,3 +7,11 @@ api.interceptors.request.use(cfg => {
   if (token) cfg.headers.Authorization = `Bearer ${token}`;
   return cfg;
 });
+
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (axios.isAxiosError(error) && typeof error.response?.data?.detail === 'string') {
+    return error.response.data.detail;
+  }
+
+  return fallback;
+}
