@@ -153,6 +153,8 @@ Run the static checks from the project root:
 npm run check
 ```
 
+This now includes an offline backend regression smoke suite for the core flows we have stabilized so far.
+
 With the backend running, verify the health endpoint:
 
 ```bash
