@@ -25,6 +25,23 @@ from src.database.models import (
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 
+from typing import Any
+
+def extract_clean_answer(content: str | list[dict[str, Any]]) -> str:
+    """Safely extracts the final text from model output, filtering out thinking blocks."""
+    # If the model didn't use a thinking block and just returned a string
+    if isinstance(content, str):
+        return content
+        
+    # If the model returned a structured list of blocks
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                return block.get("text", "")
+                
+    # Fallback just in case the format is completely unexpected
+    return str(content)
+
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -295,10 +312,8 @@ async def query_video(request: QueryRequest) -> dict[str, str]:
         inputs = {"messages": [("user", request.question)]}
         result = agent.invoke(inputs)
 
-        final_answer = result["messages"][-1].content
-
-        if isinstance(final_answer, list):
-            final_answer = final_answer[0].get("text", str(final_answer))
+        raw_content = result["messages"][-1].content
+        final_answer = extract_clean_answer(raw_content)
 
         return {"answer": str(final_answer)}
 
