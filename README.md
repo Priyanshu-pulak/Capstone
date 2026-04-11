@@ -22,11 +22,12 @@ VidQuery is a full-stack YouTube learning assistant. It combines a FastAPI backe
 - `FAISS` stores per-video local indexes under `backend/local_indexes/`
 - `SQLModel + SQLite` persist users, video history, and saved summary text
 - `youtube-transcript-api` fetches transcripts directly from YouTube
+- `uv` is used for ultra-fast dependency management
 
 ### Frontend
 
 - `React 18 + Vite + TypeScript`
-- Component-based UI refactor with dedicated panels for chat, quiz, perspectives, and concept maps
+- Component-based UI with dedicated panels for chat, quiz, perspectives, and concept maps
 - `Axios` API client with JWT token injection
 - `Framer Motion`, `lucide-react`, `clsx`, and `tailwind-merge` for UI behavior/styling
 
@@ -58,6 +59,7 @@ VidQuery is a full-stack YouTube learning assistant. It combines a FastAPI backe
 ## Requirements
 
 - Python `3.13+`
+- `uv` (Fast Python package and project manager)
 - Node.js `18+`
 - npm
 - A valid Google AI API key
@@ -80,25 +82,15 @@ Notes:
 
 ### 1. Start the backend
 
-Using `uv`:
+We use `uv` for dependency management and the new FastAPI CLI to run the development server:
 
 ```bash
 cd backend
 uv sync
-uv run uvicorn main:app --reload
+uv run fastapi dev main.py
 ```
 
-Using `venv` + `pip`:
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-uvicorn main:app --reload
-```
-
-Backend runs at `http://127.0.0.1:8000`.
+The backend runs at `http://127.0.0.1:8000`.
 
 ### 2. Start the frontend
 
@@ -108,9 +100,8 @@ npm install
 npm run dev
 ```
 
-Frontend runs on Vite's dev server, normally `http://127.0.0.1:5173`.
-
-The frontend proxies `/api/*` requests to the FastAPI backend through `frontend/vite.config.ts`.
+The frontend runs on Vite's dev server, normally `http://127.0.0.1:5173`.
+All `/api/*` requests are proxied to the FastAPI backend through `frontend/vite.config.ts`.
 
 ## Project Structure
 
@@ -119,50 +110,57 @@ VidQuery/
 ├── README.md
 ├── package.json
 ├── backend/
+│   ├── .env
+│   ├── .python-version
 │   ├── main.py
 │   ├── pyproject.toml
-│   ├── uv.lock
-│   ├── vidquery.db
 │   ├── legacy/
-│   │   ├── link.txt
-│   │   └── main_legacy.py
+│   │   └── link.txt
 │   ├── local_indexes/
 │   │   └── <video_id>_{qa,summary}/
-│   ├── src/
-│   │   ├── chain/
-│   │   │   ├── agent.py
-│   │   │   ├── chatbot_chain.py
-│   │   │   ├── qa_chain.py
-│   │   │   └── summary_chain.py
-│   │   ├── database/
-│   │   │   └── models.py
-│   │   ├── prompt_templates/
-│   │   │   └── prompt.py
-│   │   ├── schema/
-│   │   │   └── query_category.py
-│   │   ├── vector_stores/
-│   │   │   ├── qa_vector_store.py
-│   │   │   └── summary_vector_store.py
-│   │   ├── utils.py
-│   │   └── youtube_chatbot.py
-│   └── tests/
-├── frontend/
-│   ├── package.json
-│   ├── vite.config.ts
-│   ├── tailwind.config.js
 │   └── src/
-│       ├── App.tsx
-│       ├── api.ts
-│       ├── index.css
-│       ├── main.tsx
-│       └── components/
-│           ├── AuthPage.tsx
-│           ├── ChatPanel.tsx
-│           ├── ConceptMapPanel.tsx
-│           ├── PerspectivesPanel.tsx
-│           ├── QuizPanel.tsx
-│           └── Sidebar.tsx
-└── .gitignore
+│       ├── __init__.py
+│       ├── utils.py
+│       ├── youtube_chatbot.py
+│       ├── chain/
+│       │   ├── __init__.py
+│       │   ├── agent.py
+│       │   ├── chatbot_chain.py
+│       │   ├── qa_chain.py
+│       │   └── summary_chain.py
+│       ├── database/
+│       │   ├── __init__.py
+│       │   └── models.py
+│       ├── prompt_templates/
+│       │   ├── __init__.py
+│       │   └── prompt.py
+│       ├── schema/
+│       │   ├── __init__.py
+│       │   └── query_category.py
+│       └── vector_stores/
+│           ├── __init__.py
+│           ├── qa_vector_store.py
+│           └── summary_vector_store.py
+└── frontend/
+    ├── index.html
+    ├── package.json
+    ├── postcss.config.js
+    ├── tailwind.config.js
+    ├── tsconfig.json
+    ├── tsconfig.node.json
+    ├── vite.config.ts
+    └── src/
+        ├── api.ts
+        ├── App.tsx
+        ├── index.css
+        ├── main.tsx
+        └── components/
+            ├── AuthPage.tsx
+            ├── ChatPanel.tsx
+            ├── ConceptMapPanel.tsx
+            ├── PerspectivesPanel.tsx
+            ├── QuizPanel.tsx
+            └── SideBar.tsx
 ```
 
 ## Key Files
@@ -182,7 +180,7 @@ VidQuery/
 - `frontend/src/App.tsx`: main app shell, auth gating, mode switching, selected-video state, and orchestration
 - `frontend/src/api.ts`: Axios instance with JWT auth header injection
 - `frontend/src/components/AuthPage.tsx`: login/signup screen
-- `frontend/src/components/Sidebar.tsx`: video list and add/remove UI
+- `frontend/src/components/SideBar.tsx`: video list and add/remove UI
 - `frontend/src/components/ChatPanel.tsx`: reusable chat panel for single-video and cross-video modes
 - `frontend/src/components/QuizPanel.tsx`: quiz generation UI
 - `frontend/src/components/PerspectivesPanel.tsx`: multi-perspective summary UI
@@ -213,7 +211,7 @@ VidQuery/
 
 ## Persistence and Generated Data
 
-- User accounts, video history, and saved summaries live in `backend/vidquery.db`
+- User accounts, video history, and saved summaries live in the `vidquery.db` SQLite database
 - Generated FAISS indexes are written to `backend/local_indexes/`
 - JWT auth state is stored in browser `localStorage`
 - The backend also keeps an in-memory transcript cache while the server is running
@@ -221,8 +219,7 @@ VidQuery/
 ## Development Notes
 
 - `backend/legacy/` keeps older prototype code for reference
-- `backend/tests/` currently looks closer to smoke/integration scripts than a full automated test suite
-- `backend/local_indexes/` is gitignored because it is generated locally
+- `backend/local_indexes/` should remain gitignored because it is generated locally
 
 ## Troubleshooting
 
@@ -247,10 +244,3 @@ Make sure:
 - backend is running on `127.0.0.1:8000`
 - frontend is running through Vite
 - requests are going through `/api` so the proxy in `frontend/vite.config.ts` is used
-
-## Future Cleanup Opportunities
-
-- move remaining mode-specific logic out of `App.tsx`
-- improve error handling in the frontend for backend rate-limit responses
-- add a more complete automated test suite
-- replace older root-level helper scripts with scripts that match the current refactored layout
