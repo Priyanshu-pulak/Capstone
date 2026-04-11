@@ -8,6 +8,7 @@ import os
 import json
 import re
 from typing import Optional
+from copy import deepcopy
 from dotenv import load_dotenv
 import logging
 from datetime import datetime, timedelta, UTC
@@ -67,6 +68,12 @@ app.add_middleware(
 video_transcripts: dict[str, str] = {}
 video_meta: dict[str, dict] = {}
 video_agents: dict[str, Any] = {}
+feature_results_cache: dict[str, dict[tuple[Any, ...], dict[str, Any]]] = {
+    "quiz": {},
+    "perspectives": {},
+    "concept_graph": {},
+}
+model_cache: dict[str, Any] = {}
 
 
 logging.basicConfig(
@@ -269,6 +276,33 @@ def _get_or_build_chatbot_agent(video_url: str):
     return agent
 
 
+def _get_generative_model(model_name: str = "gemini-2.5-flash"):
+    if model_name not in model_cache:
+        model_cache[model_name] = genai.GenerativeModel(model_name)
+    return model_cache[model_name]
+
+
+def _get_cached_feature_result(
+    scope: str, cache_key: tuple[Any, ...]
+) -> dict[str, Any] | None:
+    cached = feature_results_cache[scope].get(cache_key)
+    return deepcopy(cached) if cached is not None else None
+
+
+def _cache_feature_result(
+    scope: str, cache_key: tuple[Any, ...], result: dict[str, Any]
+) -> dict[str, Any]:
+    feature_results_cache[scope][cache_key] = deepcopy(result)
+    return result
+
+
+def _clear_video_feature_results(video_url: str) -> None:
+    for cache in feature_results_cache.values():
+        keys_to_delete = [key for key in cache if key and key[0] == video_url]
+        for key in keys_to_delete:
+            del cache[key]
+
+
 # ── Startup ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 def on_startup():
@@ -351,6 +385,7 @@ async def process_video(
         video_id = metadata["video_id"] or None
         title = metadata["title"]
         video_agents.pop(request.video_url, None)
+        _clear_video_feature_results(request.video_url)
 
         with Session(engine) as session:
             existing = session.exec(
@@ -458,7 +493,7 @@ async def cross_video_query(
 
     combined = "\n\n---\n\n".join(video_contexts)
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        model = _get_generative_model()
         response = model.generate_content(f"""You have access to MULTIPLE video transcripts:
 {combined}
 ---
@@ -484,8 +519,12 @@ async def generate_quiz(
 ):
     _require_user_video_access(current_user["id"], request.video_url)
     transcript = _get_or_fetch_transcript(request.video_url)
+    cache_key = (request.video_url, request.num_questions, request.quiz_type)
+    cached_result = _get_cached_feature_result("quiz", cache_key)
+    if cached_result is not None:
+        return cached_result
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        model = _get_generative_model()
         if request.quiz_type == "mcq":
             prompt = f"""Generate exactly {request.num_questions} MCQs from this transcript.
 Transcript: {transcript[:25000]}
@@ -497,7 +536,8 @@ Transcript: {transcript[:25000]}
 Return ONLY valid JSON, no markdown:
 {{"questions":[{{"question":"...","answer":"...","explanation":"..."}}]}}"""
         response = model.generate_content(prompt)
-        return {"quiz": extract_json(response.text), "quiz_type": request.quiz_type}
+        result = {"quiz": extract_json(response.text), "quiz_type": request.quiz_type}
+        return _cache_feature_result("quiz", cache_key, result)
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
@@ -517,8 +557,12 @@ async def perspective_summary(
 ):
     _require_user_video_access(current_user["id"], request.video_url)
     transcript = _get_or_fetch_transcript(request.video_url)
+    cache_key = (request.video_url,)
+    cached_result = _get_cached_feature_result("perspectives", cache_key)
+    if cached_result is not None:
+        return cached_result
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        model = _get_generative_model()
         prompt = f"""Analyze this transcript from 4 perspectives.
 Transcript: {transcript[:28000]}
 Return ONLY valid JSON, no markdown:
@@ -529,7 +573,8 @@ Return ONLY valid JSON, no markdown:
   "beginner_expert": {{"emoji":"🧠","title":"Beginner vs Expert","beginner":"2-3 sentences","expert":"2-3 sentences","bridge":"..."}}
 }}"""
         response = model.generate_content(prompt)
-        return {"perspectives": extract_json(response.text)}
+        result = {"perspectives": extract_json(response.text)}
+        return _cache_feature_result("perspectives", cache_key, result)
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)
 
@@ -551,15 +596,20 @@ async def concept_graph(
 ):
     _require_user_video_access(current_user["id"], request.video_url)
     transcript = _get_or_fetch_transcript(request.video_url)
+    cache_key = (request.video_url,)
+    cached_result = _get_cached_feature_result("concept_graph", cache_key)
+    if cached_result is not None:
+        return cached_result
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        model = _get_generative_model()
         prompt = f"""Extract a concept dependency graph from this transcript.
 Transcript: {transcript[:28000]}
 Return ONLY valid JSON, no markdown:
 {{"nodes":[{{"id":"snake_id","label":"Short Label","level":0,"description":"One sentence."}}],"edges":[{{"from":"id1","to":"id2","label":"prerequisite for"}}]}}
 Rules: 8-15 concepts, level 0=foundational, labels max 4 words, snake_case IDs."""
         response = model.generate_content(prompt)
-        return {"graph": extract_json(response.text)}
+        result = {"graph": extract_json(response.text)}
+        return _cache_feature_result("concept_graph", cache_key, result)
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)
 
@@ -600,6 +650,7 @@ async def delete_video(
         del video_meta[url]
     if url in video_agents:
         del video_agents[url]
+    _clear_video_feature_results(url)
 
     return {"message": f"Removed {url} and cleared runtime cache."}
 

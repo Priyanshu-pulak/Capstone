@@ -41,11 +41,32 @@ class FakeGenerativeResponse:
 
 
 class FakeGenerativeModel:
+    call_counts = {
+        "quiz_mcq": 0,
+        "quiz_short": 0,
+        "perspectives": 0,
+        "concept_graph": 0,
+        "cross": 0,
+    }
+    instances_created = 0
+
+    @classmethod
+    def reset_counts(cls) -> None:
+        cls.call_counts = {
+            "quiz_mcq": 0,
+            "quiz_short": 0,
+            "perspectives": 0,
+            "concept_graph": 0,
+            "cross": 0,
+        }
+        cls.instances_created = 0
+
     def __init__(self, *_args, **_kwargs):
-        pass
+        self.__class__.instances_created += 1
 
     def generate_content(self, prompt: str) -> FakeGenerativeResponse:
         if "Generate exactly" in prompt and "MCQs" in prompt:
+            self.__class__.call_counts["quiz_mcq"] += 1
             match = re.search(r"Generate exactly (\d+)", prompt)
             count = int(match.group(1)) if match else 1
             return FakeGenerativeResponse(
@@ -70,6 +91,7 @@ class FakeGenerativeModel:
             )
 
         if "Generate exactly" in prompt and "short-answer" in prompt:
+            self.__class__.call_counts["quiz_short"] += 1
             return FakeGenerativeResponse(
                 json.dumps(
                     {
@@ -85,6 +107,7 @@ class FakeGenerativeModel:
             )
 
         if "Analyze this transcript from 4 perspectives." in prompt:
+            self.__class__.call_counts["perspectives"] += 1
             return FakeGenerativeResponse(
                 json.dumps(
                     {
@@ -113,6 +136,7 @@ class FakeGenerativeModel:
             )
 
         if "Extract a concept dependency graph" in prompt:
+            self.__class__.call_counts["concept_graph"] += 1
             return FakeGenerativeResponse(
                 json.dumps(
                     {
@@ -141,6 +165,7 @@ class FakeGenerativeModel:
                 )
             )
 
+        self.__class__.call_counts["cross"] += 1
         return FakeGenerativeResponse("Cross-video answer covering selected videos.")
 
 
@@ -154,6 +179,7 @@ class TestApiSmoke(unittest.TestCase):
         )
 
         self._clear_runtime_caches()
+        FakeGenerativeModel.reset_counts()
 
         self.engine_patch = patch.object(app_module, "engine", self.test_engine)
         self.models_engine_patch = patch.object(models, "engine", self.test_engine)
@@ -217,6 +243,9 @@ class TestApiSmoke(unittest.TestCase):
         app_module.video_transcripts.clear()
         app_module.video_meta.clear()
         app_module.video_agents.clear()
+        app_module.model_cache.clear()
+        for cache in app_module.feature_results_cache.values():
+            cache.clear()
 
     def register_user(self, username: str, email: str) -> dict[str, str]:
         response = self.client.post(
@@ -324,7 +353,7 @@ class TestApiSmoke(unittest.TestCase):
         headers = self.register_user("erin", "erin@example.com")
         self.process_video(video_url, headers)
 
-        quiz_response = self.client.post(
+        first_quiz_response = self.client.post(
             "/quiz",
             json={
                 "video_url": video_url,
@@ -333,24 +362,49 @@ class TestApiSmoke(unittest.TestCase):
             },
             headers=headers,
         )
-        perspectives_response = self.client.post(
+        second_quiz_response = self.client.post(
+            "/quiz",
+            json={
+                "video_url": video_url,
+                "num_questions": 3,
+                "quiz_type": "mcq",
+            },
+            headers=headers,
+        )
+        first_perspectives_response = self.client.post(
             "/summary/perspectives",
             json={"video_url": video_url},
             headers=headers,
         )
-        concept_graph_response = self.client.post(
+        second_perspectives_response = self.client.post(
+            "/summary/perspectives",
+            json={"video_url": video_url},
+            headers=headers,
+        )
+        first_concept_graph_response = self.client.post(
+            "/concept-graph",
+            json={"video_url": video_url},
+            headers=headers,
+        )
+        second_concept_graph_response = self.client.post(
             "/concept-graph",
             json={"video_url": video_url},
             headers=headers,
         )
 
-        self.assertEqual(quiz_response.status_code, 200, quiz_response.text)
-        self.assertEqual(perspectives_response.status_code, 200, perspectives_response.text)
-        self.assertEqual(concept_graph_response.status_code, 200, concept_graph_response.text)
+        self.assertEqual(first_quiz_response.status_code, 200, first_quiz_response.text)
+        self.assertEqual(second_quiz_response.status_code, 200, second_quiz_response.text)
+        self.assertEqual(first_perspectives_response.status_code, 200, first_perspectives_response.text)
+        self.assertEqual(second_perspectives_response.status_code, 200, second_perspectives_response.text)
+        self.assertEqual(first_concept_graph_response.status_code, 200, first_concept_graph_response.text)
+        self.assertEqual(second_concept_graph_response.status_code, 200, second_concept_graph_response.text)
 
-        quiz_json = quiz_response.json()
-        perspectives_json = perspectives_response.json()
-        concept_graph_json = concept_graph_response.json()
+        quiz_json = first_quiz_response.json()
+        perspectives_json = first_perspectives_response.json()
+        concept_graph_json = first_concept_graph_response.json()
+        self.assertEqual(second_quiz_response.json(), quiz_json)
+        self.assertEqual(second_perspectives_response.json(), perspectives_json)
+        self.assertEqual(second_concept_graph_response.json(), concept_graph_json)
 
         self.assertEqual(quiz_json["quiz_type"], "mcq")
         self.assertEqual(len(quiz_json["quiz"]["questions"]), 3)
@@ -360,6 +414,10 @@ class TestApiSmoke(unittest.TestCase):
         self.assertIn("beginner_expert", perspectives_json["perspectives"])
         self.assertGreaterEqual(len(concept_graph_json["graph"]["nodes"]), 2)
         self.assertEqual(len(concept_graph_json["graph"]["edges"]), 1)
+        self.assertEqual(FakeGenerativeModel.call_counts["quiz_mcq"], 1)
+        self.assertEqual(FakeGenerativeModel.call_counts["perspectives"], 1)
+        self.assertEqual(FakeGenerativeModel.call_counts["concept_graph"], 1)
+        self.assertEqual(FakeGenerativeModel.instances_created, 1)
 
     def test_video_routes_require_auth_and_history_access(self) -> None:
         video_url = "https://youtube.com/watch?v=video-six"
