@@ -17,8 +17,8 @@ VidQuery is a full-stack YouTube learning assistant. It combines a FastAPI backe
 ### Backend
 
 - `FastAPI` serves auth, video processing, querying, quiz, summary, and concept graph endpoints
-- `LangChain + LangGraph` power the single-video chat flow
-- `Google Gemini` is used for chat, summarization, quiz generation, perspectives, and concept graphs
+- `LangChain` powers the single-video chat flow
+- `Google Gen AI SDK` and `langchain-google-genai` power Gemini-backed chat, quiz, summary, and concept-map generation
 - `FAISS` stores per-video local indexes under `backend/local_indexes/`
 - `SQLModel + SQLite` persist users, video history, and saved summary text
 - `youtube-transcript-api` fetches transcripts directly from YouTube
@@ -52,13 +52,13 @@ VidQuery is a full-stack YouTube learning assistant. It combines a FastAPI backe
 
 ## Tech Stack
 
-- Backend: FastAPI, SQLModel, LangChain, LangGraph, FAISS, Google Generative AI, YouTube Transcript API
+- Backend: FastAPI, SQLModel, LangChain, FAISS, Google Gen AI SDK, YouTube Transcript API
 - Frontend: React, Vite, TypeScript, Axios, Framer Motion
-- Persistence: SQLite, local FAISS index folders, browser `localStorage`
+- Persistence: SQLite, local FAISS index folders, browser `localStorage` for per-user UI state
 
 ## Requirements
 
-- Python `3.13+`
+- Python `3.14`
 - `uv` (Fast Python package and project manager)
 - Node.js `18+`
 - npm
@@ -245,7 +245,7 @@ VidQuery/
 ### Frontend
 
 - `frontend/src/App.tsx`: main app shell, auth gating, mode switching, selected-video state, and orchestration
-- `frontend/src/api.ts`: Axios instance with JWT auth header injection
+- `frontend/src/api.ts`: Axios instance with cookie-backed auth and legacy bearer fallback
 - `frontend/src/components/AuthPage.tsx`: login/signup screen
 - `frontend/src/components/SideBar.tsx`: video list and add/remove UI
 - `frontend/src/components/ChatPanel.tsx`: reusable chat panel for single-video and cross-video modes
@@ -260,6 +260,7 @@ VidQuery/
 - `POST /auth/register`
 - `POST /auth/login`
 - `GET /auth/me`
+- `POST /auth/logout`
 
 ### Videos and history
 
