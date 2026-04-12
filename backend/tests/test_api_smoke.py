@@ -199,9 +199,9 @@ class TestApiSmoke(unittest.TestCase):
             side_effect=self.fake_build_chatbot_chain,
         )
         self.generative_model_patch = patch.object(
-            app_module.genai,
-            "GenerativeModel",
-            FakeGenerativeModel,
+            app_module,
+            "_create_generative_model",
+            side_effect=FakeGenerativeModel,
         )
 
         self.engine_patch.start()
@@ -244,6 +244,7 @@ class TestApiSmoke(unittest.TestCase):
         app_module.video_meta.clear()
         app_module.video_agents.clear()
         app_module.model_cache.clear()
+        app_module.genai_client_cache.clear()
         for cache in app_module.feature_results_cache.values():
             cache.clear()
 

@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timedelta, UTC
 from src.chain import build_chatbot_chain
 
-import google.generativeai as genai
+from google import genai
 from src.utils import fetch_transcript, get_video_id
 from src.database.models import (
     create_db_and_tables,
@@ -107,8 +107,6 @@ COOKIE_SECURE = APP_ENV == "production"
 COOKIE_MAX_AGE_SECONDS = ACCESS_TOKEN_EXPIRE_HOURS * 60 * 60
 CORS_ORIGINS = _parse_cors_origins(os.getenv("CORS_ORIGINS"))
 
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -131,6 +129,7 @@ feature_results_cache: dict[str, dict[tuple[Any, ...], dict[str, Any]]] = {
     "concept_graph": {},
 }
 model_cache: dict[str, Any] = {}
+genai_client_cache: dict[str, Any] = {}
 
 INVALID_YOUTUBE_URL_DETAIL = (
     "Invalid YouTube URL. Please provide a valid video link or 11-character video ID."
@@ -382,9 +381,40 @@ def _get_or_build_chatbot_agent(video_url: str):
     return agent
 
 
+def _get_google_api_key() -> str:
+    api_key = (os.getenv("GOOGLE_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError(
+            "GOOGLE_API_KEY is not configured. Set GOOGLE_API_KEY in backend/.env."
+        )
+    return api_key
+
+
+def _get_genai_client():
+    if "default" not in genai_client_cache:
+        genai_client_cache["default"] = genai.Client(api_key=_get_google_api_key())
+    return genai_client_cache["default"]
+
+
+class _GenAIModelAdapter:
+    def __init__(self, client, model_name: str):
+        self._client = client
+        self._model_name = model_name
+
+    def generate_content(self, prompt: str):
+        return self._client.models.generate_content(
+            model=self._model_name,
+            contents=prompt,
+        )
+
+
+def _create_generative_model(model_name: str):
+    return _GenAIModelAdapter(_get_genai_client(), model_name)
+
+
 def _get_generative_model(model_name: str = "gemini-2.5-flash"):
     if model_name not in model_cache:
-        model_cache[model_name] = genai.GenerativeModel(model_name)
+        model_cache[model_name] = _create_generative_model(model_name)
     return model_cache[model_name]
 
 
