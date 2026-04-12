@@ -11,6 +11,7 @@ import ChatPanel from './components/ChatPanel';
 import QuizPanel from './components/QuizPanel';
 import PerspectivesPanel from './components/PerspectivesPanel';
 import ConceptMapPanel from './components/ConceptMapPanel';
+import ProfileModal from './components/ProfileModal';
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
@@ -43,6 +44,7 @@ const LEVEL_BG = ['#eef2ff','#f5f3ff','#faf5ff','#fdf4ff','#fdf2f8','#fff1f2'];
 export default function VidQueryApp() {
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [isRestoringSession, setIsRestoringSession] = useState(true);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('chat');
   const [videos, setVideos] = useState<VideoMeta[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<VideoMeta | null>(null);
@@ -168,6 +170,7 @@ export default function VidQueryApp() {
     localStorage.removeItem('vq_token');
     localStorage.removeItem('vq_username');
     setCurrentUser(null);
+    setIsProfileModalOpen(false);
     setVideos([]);
     setSelectedVideo(null);
     setSelectedCrossVideos([]);
@@ -368,10 +371,15 @@ export default function VidQueryApp() {
         </div>
         {/* User + Logout */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/70 border border-slate-200 text-sm text-slate-700">
+          <button
+            type="button"
+            onClick={() => setIsProfileModalOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/70 border border-slate-200 text-sm text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50/70"
+            title="Open account settings"
+          >
             <UserIcon className="w-3.5 h-3.5 text-indigo-500" />
             <span className="font-medium text-xs">{currentUser}</span>
-          </div>
+          </button>
           <button onClick={logout} title="Logout"
             className="w-8 h-8 rounded-xl bg-white/70 border border-slate-200 hover:bg-red-50 hover:border-red-200 flex items-center justify-center transition-all group">
             <LogOut className="w-3.5 h-3.5 text-slate-500 group-hover:text-red-500" />
@@ -501,6 +509,12 @@ export default function VidQueryApp() {
 
         </main>
       </div>
+
+      <ProfileModal
+        currentUser={currentUser}
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+      />
     </div>
   );
 }

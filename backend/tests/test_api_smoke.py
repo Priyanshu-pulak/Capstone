@@ -254,13 +254,14 @@ class TestApiSmoke(unittest.TestCase):
         email: str,
         *,
         keep_session_cookie: bool = False,
+        password: str = "password123",
     ) -> dict[str, str]:
         response = self.client.post(
             "/auth/register",
             json={
                 "username": username,
                 "email": email,
-                "password": "password123",
+                "password": password,
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
@@ -537,6 +538,57 @@ class TestApiSmoke(unittest.TestCase):
         cookie_only_response = self.client.get("/auth/me")
         self.assertEqual(cookie_only_response.status_code, 200, cookie_only_response.text)
         self.assertEqual(cookie_only_response.json()["username"], "kai")
+
+    def test_password_update_requires_current_password_and_allows_new_login(self) -> None:
+        email = "lena@example.com"
+        old_password = "password123"
+        new_password = "new-password456"
+        headers = self.register_user("lena", email, password=old_password)
+
+        update_response = self.client.post(
+            "/auth/profile/password",
+            json={
+                "current_password": old_password,
+                "new_password": new_password,
+            },
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200, update_response.text)
+        self.assertEqual(
+            update_response.json()["message"],
+            "Password updated successfully.",
+        )
+        self.assertIn("vq_access_token=", update_response.headers.get("set-cookie", ""))
+
+        failed_login = self.client.post(
+            "/auth/login",
+            json={"email": email, "password": old_password},
+        )
+        self.assertEqual(failed_login.status_code, 401, failed_login.text)
+
+        successful_login = self.client.post(
+            "/auth/login",
+            json={"email": email, "password": new_password},
+        )
+        self.assertEqual(successful_login.status_code, 200, successful_login.text)
+        self.assertEqual(successful_login.json()["username"], "lena")
+
+    def test_password_update_rejects_incorrect_current_password(self) -> None:
+        headers = self.register_user("mira", "mira@example.com")
+
+        update_response = self.client.post(
+            "/auth/profile/password",
+            json={
+                "current_password": "wrong-password",
+                "new_password": "new-password456",
+            },
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 401, update_response.text)
+        self.assertEqual(
+            update_response.json()["detail"],
+            "Current password is incorrect.",
+        )
 
 
 if __name__ == "__main__":

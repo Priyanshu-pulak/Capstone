@@ -201,6 +201,13 @@ class LoginRequest(BaseModel):
     password: Annotated[str, Field(...)]
 
 
+class PasswordUpdateRequest(BaseModel):
+    current_password: Annotated[str, Field(..., min_length=1)]
+    new_password: Annotated[
+        str, Field(..., min_length=6, description="User's new plain text password")
+    ]
+
+
 '''
 Authentication system using JWT tokens, with password hashing via Argon2. The /auth/register and /auth/login endpoints allow users to create accounts and log in, returning a JWT token for authenticated requests. The get_current_user dependency decodes the token to identify the user for protected routes. Passwords are securely hashed before storage, and verified during login.
 '''
@@ -502,6 +509,38 @@ async def me(
     refreshed_token = create_token(current_user["id"], current_user["username"])
     _set_auth_cookie(response, refreshed_token)
     return current_user
+
+
+@app.post("/auth/profile/password")
+async def update_password(
+    req: PasswordUpdateRequest,
+    response: Response,
+    current_user: dict = Depends(require_current_user),
+):
+    if req.current_password == req.new_password:
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different from your current password.",
+        )
+
+    with Session(engine) as session:
+        user = session.get(User, current_user["id"])
+        if not user:
+            raise HTTPException(status_code=401, detail="Not authenticated.")
+
+        if not verify_password(req.current_password, user.hashed_password):
+            raise HTTPException(
+                status_code=401,
+                detail="Current password is incorrect.",
+            )
+
+        user.hashed_password = hash_password(req.new_password)
+        session.add(user)
+        session.commit()
+
+    refreshed_token = create_token(current_user["id"], current_user["username"])
+    _set_auth_cookie(response, refreshed_token)
+    return {"message": "Password updated successfully."}
 
 
 @app.post("/auth/logout")
