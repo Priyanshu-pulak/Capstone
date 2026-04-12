@@ -590,6 +590,58 @@ class TestApiSmoke(unittest.TestCase):
             "Current password is incorrect.",
         )
 
+    def test_username_update_refreshes_session_and_keeps_history(self) -> None:
+        original_username = "nina"
+        updated_username = "nina-renamed"
+        email = "nina@example.com"
+        video_url = "https://youtube.com/watch?v=video-eight"
+        headers = self.register_user(original_username, email)
+        self.process_video(video_url, headers)
+
+        update_response = self.client.post(
+            "/auth/profile/username",
+            json={"username": updated_username},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200, update_response.text)
+        self.assertEqual(
+            update_response.json()["message"],
+            "Username updated successfully.",
+        )
+        self.assertEqual(update_response.json()["username"], updated_username)
+        self.assertIn("vq_access_token=", update_response.headers.get("set-cookie", ""))
+
+        me_response = self.client.get("/auth/me", headers=headers)
+        self.assertEqual(me_response.status_code, 200, me_response.text)
+        self.assertEqual(me_response.json()["username"], updated_username)
+
+        history_response = self.client.get("/history", headers=headers)
+        self.assertEqual(history_response.status_code, 200, history_response.text)
+        self.assertEqual(len(history_response.json()["videos"]), 1)
+        self.assertEqual(history_response.json()["videos"][0]["url"], video_url)
+
+        login_response = self.client.post(
+            "/auth/login",
+            json={"email": email, "password": "password123"},
+        )
+        self.assertEqual(login_response.status_code, 200, login_response.text)
+        self.assertEqual(login_response.json()["username"], updated_username)
+
+    def test_username_update_rejects_duplicate_username(self) -> None:
+        owner_headers = self.register_user("oliver", "oliver@example.com")
+        self.register_user("priya", "priya@example.com")
+
+        update_response = self.client.post(
+            "/auth/profile/username",
+            json={"username": "priya"},
+            headers=owner_headers,
+        )
+        self.assertEqual(update_response.status_code, 400, update_response.text)
+        self.assertEqual(
+            update_response.json()["detail"],
+            "Username already taken.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

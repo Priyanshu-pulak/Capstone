@@ -12,6 +12,7 @@ import QuizPanel from './components/QuizPanel';
 import PerspectivesPanel from './components/PerspectivesPanel';
 import ConceptMapPanel from './components/ConceptMapPanel';
 import ProfileModal from './components/ProfileModal';
+import { migrateFeatureStateUsername } from './featureStorage';
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
@@ -34,6 +35,18 @@ const emptyChatState = (): PersistedChatState => ({
   crossChatHistory: [],
   crossQuestion: '',
 });
+
+const migrateChatStorageUsername = (previousUsername: string, nextUsername: string) => {
+  if (!previousUsername || !nextUsername || previousUsername === nextUsername) return;
+
+  const previousKey = getChatStorageKey(previousUsername);
+  const nextKey = getChatStorageKey(nextUsername);
+  const savedState = localStorage.getItem(previousKey);
+  if (savedState !== null) {
+    localStorage.setItem(nextKey, savedState);
+    localStorage.removeItem(previousKey);
+  }
+};
 
 
 const LEVEL_COLORS = ['#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899','#f43f5e'];
@@ -182,6 +195,20 @@ export default function VidQueryApp() {
     setCrossQuestion('');
     setHasHydratedChatState(false);
     setIsRestoringSession(false);
+  };
+
+  const handleUsernameUpdated = (nextUsername: string) => {
+    if (!currentUser || currentUser === nextUsername) {
+      setIsProfileModalOpen(false);
+      return;
+    }
+
+    migrateChatStorageUsername(currentUser, nextUsername);
+    migrateFeatureStateUsername(currentUser, nextUsername);
+    localStorage.setItem('vq_username', nextUsername);
+    localStorage.removeItem('vq_token');
+    setCurrentUser(nextUsername);
+    setIsProfileModalOpen(false);
   };
 
   if (isRestoringSession) {
@@ -514,6 +541,7 @@ export default function VidQueryApp() {
         currentUser={currentUser}
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
+        onUsernameUpdated={handleUsernameUpdated}
       />
     </div>
   );

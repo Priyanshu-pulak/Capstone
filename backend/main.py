@@ -208,6 +208,10 @@ class PasswordUpdateRequest(BaseModel):
     ]
 
 
+class UsernameUpdateRequest(BaseModel):
+    username: Annotated[str, Field(..., min_length=3, max_length=50)]
+
+
 '''
 Authentication system using JWT tokens, with password hashing via Argon2. The /auth/register and /auth/login endpoints allow users to create accounts and log in, returning a JWT token for authenticated requests. The get_current_user dependency decodes the token to identify the user for protected routes. Passwords are securely hashed before storage, and verified during login.
 '''
@@ -269,9 +273,14 @@ def get_current_user(
     for token in token_candidates:
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            return {"id": int(payload["sub"]), "username": payload["username"]}
-        except JWTError:
+            user_id = int(payload["sub"])
+        except (JWTError, TypeError, ValueError):
             continue
+
+        with Session(engine) as session:
+            user = session.get(User, user_id)
+            if user:
+                return {"id": user.id, "username": user.username}
 
     return None
 
@@ -541,6 +550,51 @@ async def update_password(
     refreshed_token = create_token(current_user["id"], current_user["username"])
     _set_auth_cookie(response, refreshed_token)
     return {"message": "Password updated successfully."}
+
+
+@app.post("/auth/profile/username")
+async def update_username(
+    req: UsernameUpdateRequest,
+    response: Response,
+    current_user: dict = Depends(require_current_user),
+):
+    normalized_username = req.username.strip()
+    if not 3 <= len(normalized_username) <= 50:
+        raise HTTPException(
+            status_code=400,
+            detail="Username must be between 3 and 50 characters.",
+        )
+
+    if normalized_username == current_user["username"]:
+        raise HTTPException(
+            status_code=400,
+            detail="New username must be different from your current username.",
+        )
+
+    with Session(engine) as session:
+        user = session.get(User, current_user["id"])
+        if not user:
+            raise HTTPException(status_code=401, detail="Not authenticated.")
+
+        existing_user = session.exec(
+            select(User)
+            .where(User.username == normalized_username)
+            .where(User.id != current_user["id"])
+        ).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Username already taken.")
+
+        user.username = normalized_username
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+    refreshed_token = create_token(current_user["id"], normalized_username)
+    _set_auth_cookie(response, refreshed_token)
+    return {
+        "message": "Username updated successfully.",
+        "username": normalized_username,
+    }
 
 
 @app.post("/auth/logout")
