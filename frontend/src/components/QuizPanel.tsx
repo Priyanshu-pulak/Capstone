@@ -8,6 +8,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { api, getApiErrorMessage } from '../api';
@@ -16,6 +17,34 @@ import type { VideoMeta } from '../App';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+function renderQuizMarkdown(text: string, textClassName?: string) {
+  return (
+    <ReactMarkdown
+      components={{
+        p: ({ children }) => <span className={textClassName}>{children}</span>,
+        code: ({ children, className, ...props }) => (
+          <code
+            className={cn(
+              'rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[0.95em] text-indigo-700',
+              className,
+            )}
+            {...props}
+          >
+            {children}
+          </code>
+        ),
+        pre: ({ children }) => (
+          <pre className="overflow-x-auto rounded-xl bg-slate-900 px-3 py-2 text-sm text-slate-100">
+            {children}
+          </pre>
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
 }
 
 interface MCQ {
@@ -214,7 +243,9 @@ export default function QuizPanel({ currentUser, selectedVideo }: QuizPanelProps
                 <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
                   {questionIndex + 1}
                 </span>
-                <p className="text-sm font-medium text-slate-800">{question.question}</p>
+                <div className="text-sm font-medium text-slate-800">
+                  {renderQuizMarkdown(question.question, 'text-sm font-medium text-slate-800')}
+                </div>
               </div>
               {isMCQ(question) ? (
                 <div className="ml-9 space-y-2">
@@ -252,7 +283,9 @@ export default function QuizPanel({ currentUser, selectedVideo }: QuizPanelProps
                         )}
                       >
                         <span className="flex items-center justify-between">
-                          {option}
+                          <span className="flex-1">
+                            {renderQuizMarkdown(option, 'text-xs')}
+                          </span>
                           {isRevealed && isCorrect && (
                             <CheckCircle className="h-3.5 w-3.5 text-green-500" />
                           )}
@@ -264,7 +297,10 @@ export default function QuizPanel({ currentUser, selectedVideo }: QuizPanelProps
                     );
                   })}
                   {revealedAnswers[questionIndex] && (
-                    <p className="px-1 text-xs text-slate-500">💡 {question.explanation}</p>
+                    <div className="px-1 text-xs text-slate-500">
+                      <span className="mr-1">💡</span>
+                      {renderQuizMarkdown(question.explanation, 'text-xs text-slate-500')}
+                    </div>
                   )}
                 </div>
               ) : (
@@ -288,8 +324,13 @@ export default function QuizPanel({ currentUser, selectedVideo }: QuizPanelProps
                       animate={{ opacity: 1 }}
                       className="rounded-xl border border-green-200 bg-green-50 p-3"
                     >
-                      <p className="text-xs font-medium text-green-800">{question.answer}</p>
-                      <p className="mt-1 text-xs text-green-600">💡 {question.explanation}</p>
+                      <div className="text-xs font-medium text-green-800">
+                        {renderQuizMarkdown(question.answer, 'text-xs font-medium text-green-800')}
+                      </div>
+                      <div className="mt-1 text-xs text-green-600">
+                        <span className="mr-1">💡</span>
+                        {renderQuizMarkdown(question.explanation, 'text-xs text-green-600')}
+                      </div>
                     </motion.div>
                   )}
                 </div>
