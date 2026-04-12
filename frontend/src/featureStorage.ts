@@ -68,3 +68,23 @@ export function migrateFeatureStateUsername(
     localStorage.removeItem(key);
   });
 }
+
+export function clearFeatureStateForUsername(username: string): void {
+  if (!username) return;
+
+  const usernameSegment = `:${username}:`;
+  const keysToDelete: string[] = [];
+
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (
+      key &&
+      key.startsWith(FEATURE_STORAGE_PREFIX) &&
+      key.includes(usernameSegment)
+    ) {
+      keysToDelete.push(key);
+    }
+  }
+
+  keysToDelete.forEach((key) => localStorage.removeItem(key));
+}

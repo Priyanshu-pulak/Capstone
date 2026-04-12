@@ -212,6 +212,10 @@ class UsernameUpdateRequest(BaseModel):
     username: Annotated[str, Field(..., min_length=3, max_length=50)]
 
 
+class DeleteAccountRequest(BaseModel):
+    current_password: Annotated[str, Field(..., min_length=1)]
+
+
 '''
 Authentication system using JWT tokens, with password hashing via Argon2. The /auth/register and /auth/login endpoints allow users to create accounts and log in, returning a JWT token for authenticated requests. The get_current_user dependency decodes the token to identify the user for protected routes. Passwords are securely hashed before storage, and verified during login.
 '''
@@ -595,6 +599,46 @@ async def update_username(
         "message": "Username updated successfully.",
         "username": normalized_username,
     }
+
+
+@app.post("/auth/profile/delete")
+async def delete_account(
+    req: DeleteAccountRequest,
+    response: Response,
+    current_user: dict = Depends(require_current_user),
+):
+    with Session(engine) as session:
+        user = session.get(User, current_user["id"])
+        if not user:
+            raise HTTPException(status_code=401, detail="Not authenticated.")
+
+        if not verify_password(req.current_password, user.hashed_password):
+            raise HTTPException(
+                status_code=401,
+                detail="Current password is incorrect.",
+            )
+
+        history_rows = session.exec(
+            select(VideoHistory).where(VideoHistory.user_id == current_user["id"])
+        ).all()
+        affected_video_urls = {row.video_url for row in history_rows}
+
+        for row in history_rows:
+            session.delete(row)
+
+        session.delete(user)
+        session.commit()
+
+    for video_url in affected_video_urls:
+        if _has_video_history_references(video_url):
+            continue
+        video_transcripts.pop(video_url, None)
+        video_meta.pop(video_url, None)
+        video_agents.pop(video_url, None)
+        _clear_video_feature_results(video_url)
+
+    _clear_auth_cookie(response)
+    return {"message": "Account deleted successfully."}
 
 
 @app.post("/auth/logout")

@@ -12,7 +12,7 @@ import QuizPanel from './components/QuizPanel';
 import PerspectivesPanel from './components/PerspectivesPanel';
 import ConceptMapPanel from './components/ConceptMapPanel';
 import ProfileModal from './components/ProfileModal';
-import { migrateFeatureStateUsername } from './featureStorage';
+import { clearFeatureStateForUsername, migrateFeatureStateUsername } from './featureStorage';
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
@@ -46,6 +46,11 @@ const migrateChatStorageUsername = (previousUsername: string, nextUsername: stri
     localStorage.setItem(nextKey, savedState);
     localStorage.removeItem(previousKey);
   }
+};
+
+const clearChatStorageForUsername = (username: string) => {
+  if (!username) return;
+  localStorage.removeItem(getChatStorageKey(username));
 };
 
 
@@ -174,11 +179,10 @@ export default function VidQueryApp() {
     setIsRestoringSession(false);
   };
 
-  const logout = async () => {
-    try {
-      await api.post('/auth/logout');
-    } catch {
-      // Clear local auth state even if the backend is unavailable.
+  const resetClientSessionState = (usernameToClear?: string) => {
+    if (usernameToClear) {
+      clearChatStorageForUsername(usernameToClear);
+      clearFeatureStateForUsername(usernameToClear);
     }
     localStorage.removeItem('vq_token');
     localStorage.removeItem('vq_username');
@@ -197,6 +201,15 @@ export default function VidQueryApp() {
     setIsRestoringSession(false);
   };
 
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Clear local auth state even if the backend is unavailable.
+    }
+    resetClientSessionState();
+  };
+
   const handleUsernameUpdated = (nextUsername: string) => {
     if (!currentUser || currentUser === nextUsername) {
       setIsProfileModalOpen(false);
@@ -209,6 +222,14 @@ export default function VidQueryApp() {
     localStorage.removeItem('vq_token');
     setCurrentUser(nextUsername);
     setIsProfileModalOpen(false);
+  };
+
+  const handleAccountDeleted = () => {
+    if (currentUser) {
+      resetClientSessionState(currentUser);
+      return;
+    }
+    resetClientSessionState();
   };
 
   if (isRestoringSession) {
@@ -542,6 +563,7 @@ export default function VidQueryApp() {
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         onUsernameUpdated={handleUsernameUpdated}
+        onAccountDeleted={handleAccountDeleted}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Loader2, Lock, ShieldCheck, User as UserIcon, X } from 'lucide-react';
+import { AlertTriangle, Loader2, Lock, ShieldCheck, User as UserIcon, X } from 'lucide-react';
 
 import { api, getApiErrorMessage } from '../api';
 
@@ -9,6 +9,7 @@ interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUsernameUpdated: (nextUsername: string) => void;
+  onAccountDeleted: () => void;
 }
 
 export default function ProfileModal({
@@ -16,17 +17,21 @@ export default function ProfileModal({
   isOpen,
   onClose,
   onUsernameUpdated,
+  onAccountDeleted,
 }: ProfileModalProps) {
   const [nextUsername, setNextUsername] = useState(currentUser);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
   const [usernameError, setUsernameError] = useState('');
   const [usernameSuccessMessage, setUsernameSuccessMessage] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccessMessage, setPasswordSuccessMessage] = useState('');
+  const [deleteError, setDeleteError] = useState('');
   const [isUpdatingUsername, setIsUpdatingUsername] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -34,10 +39,15 @@ export default function ProfileModal({
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      setDeletePassword('');
       setUsernameError('');
       setUsernameSuccessMessage('');
       setPasswordError('');
       setPasswordSuccessMessage('');
+      setDeleteError('');
+      setIsUpdatingUsername(false);
+      setIsUpdatingPassword(false);
+      setIsDeletingAccount(false);
     }
   }, [currentUser, isOpen]);
 
@@ -100,6 +110,25 @@ export default function ProfileModal({
       setPasswordError(getApiErrorMessage(requestError, 'Failed to update password. Please try again.'));
     } finally {
       setIsUpdatingPassword(false);
+    }
+  };
+
+  const submitAccountDeletion = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isDeletingAccount) return;
+
+    setDeleteError('');
+    setIsDeletingAccount(true);
+    try {
+      await api.post('/auth/profile/delete', {
+        current_password: deletePassword,
+      });
+      onAccountDeleted();
+    } catch (requestError) {
+      setDeleteError(
+        getApiErrorMessage(requestError, 'Failed to delete account. Please try again.'),
+      );
+      setIsDeletingAccount(false);
     }
   };
 
@@ -267,7 +296,7 @@ export default function ProfileModal({
 
                   <div className="flex items-center justify-between gap-3 pt-2">
                     <p className="text-xs text-slate-500">
-                      Account deletion will be added in the next step.
+                      Your password update keeps the current session active.
                     </p>
                     <button
                       type="submit"
@@ -276,6 +305,55 @@ export default function ProfileModal({
                     >
                       {isUpdatingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
                       Update password
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div className="mt-5 rounded-3xl border border-red-200 bg-red-50/80 p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-red-600 shadow-sm">
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">Delete account</h3>
+                    <p className="text-sm text-slate-500">
+                      This permanently removes your login and your saved video history for this account.
+                    </p>
+                  </div>
+                </div>
+
+                <form onSubmit={submitAccountDeletion} className="mt-5 space-y-4">
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium text-slate-700">Current password</span>
+                    <input
+                      type="password"
+                      value={deletePassword}
+                      onChange={(event) => setDeletePassword(event.target.value)}
+                      minLength={1}
+                      required
+                      className="w-full rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-red-300 focus:ring-2 focus:ring-red-500/20"
+                      placeholder="Enter your current password to confirm"
+                    />
+                  </label>
+
+                  {deleteError && (
+                    <div className="rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm text-red-700">
+                      {deleteError}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3 pt-2">
+                    <p className="text-xs text-red-700/80">
+                      Your locally saved chat and feature state for this account will be cleared on this device too.
+                    </p>
+                    <button
+                      type="submit"
+                      disabled={isDeletingAccount}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {isDeletingAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
+                      Delete account
                     </button>
                   </div>
                 </form>

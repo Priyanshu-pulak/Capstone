@@ -642,6 +642,57 @@ class TestApiSmoke(unittest.TestCase):
             "Username already taken.",
         )
 
+    def test_account_delete_removes_user_history_and_invalidates_session(self) -> None:
+        email = "quinn@example.com"
+        video_url = "https://youtube.com/watch?v=video-nine"
+        headers = self.register_user("quinn", email, password="password123")
+        self.process_video(video_url, headers)
+        self.assertIn(video_url, app_module.video_transcripts)
+
+        delete_response = self.client.post(
+            "/auth/profile/delete",
+            json={"current_password": "password123"},
+            headers=headers,
+        )
+        self.assertEqual(delete_response.status_code, 200, delete_response.text)
+        self.assertEqual(
+            delete_response.json()["message"],
+            "Account deleted successfully.",
+        )
+        self.assertIn("vq_access_token=", delete_response.headers.get("set-cookie", ""))
+
+        me_response = self.client.get("/auth/me", headers=headers)
+        self.assertEqual(me_response.status_code, 401, me_response.text)
+
+        login_response = self.client.post(
+            "/auth/login",
+            json={"email": email, "password": "password123"},
+        )
+        self.assertEqual(login_response.status_code, 401, login_response.text)
+
+        self.assertNotIn(video_url, app_module.video_transcripts)
+
+    def test_account_delete_rejects_incorrect_password(self) -> None:
+        email = "rhea@example.com"
+        headers = self.register_user("rhea", email, password="password123")
+
+        delete_response = self.client.post(
+            "/auth/profile/delete",
+            json={"current_password": "wrong-password"},
+            headers=headers,
+        )
+        self.assertEqual(delete_response.status_code, 401, delete_response.text)
+        self.assertEqual(
+            delete_response.json()["detail"],
+            "Current password is incorrect.",
+        )
+
+        login_response = self.client.post(
+            "/auth/login",
+            json={"email": email, "password": "password123"},
+        )
+        self.assertEqual(login_response.status_code, 200, login_response.text)
+
 
 if __name__ == "__main__":
     unittest.main()
