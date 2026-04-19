@@ -137,6 +137,40 @@ INVALID_YOUTUBE_URL_DETAIL = (
 INVALID_MODEL_RESPONSE_DETAIL = (
     "The AI returned an unreadable response. Please try again."
 )
+CONTEXT_SELECTION_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "give",
+    "how",
+    "in",
+    "is",
+    "it",
+    "me",
+    "of",
+    "on",
+    "or",
+    "please",
+    "summarize",
+    "summary",
+    "tell",
+    "that",
+    "the",
+    "these",
+    "this",
+    "to",
+    "video",
+    "videos",
+    "what",
+    "with",
+}
 
 
 def _database_is_available() -> bool:
@@ -391,6 +425,107 @@ def _get_or_fetch_transcript(video_url: str) -> str:
         video_transcripts[video_url] = transcript
     _ensure_video_meta(video_url)
     return video_transcripts[video_url]
+
+
+def _chunk_text(text: str, chunk_chars: int, overlap_chars: int) -> list[str]:
+    if not text:
+        return []
+
+    chunks: list[str] = []
+    start = 0
+    text_length = len(text)
+    step = max(1, chunk_chars - overlap_chars)
+
+    while start < text_length:
+        end = min(text_length, start + chunk_chars)
+        chunks.append(text[start:end].strip())
+        if end >= text_length:
+            break
+        start += step
+
+    return [chunk for chunk in chunks if chunk]
+
+
+def _sample_evenly(total_items: int, sample_count: int) -> list[int]:
+    if total_items <= 0 or sample_count <= 0:
+        return []
+    if sample_count >= total_items:
+        return list(range(total_items))
+    if sample_count == 1:
+        return [0]
+
+    return sorted(
+        {
+            round(index * (total_items - 1) / (sample_count - 1))
+            for index in range(sample_count)
+        }
+    )
+
+
+def _context_query_terms(focus_query: str | None) -> set[str]:
+    if not focus_query:
+        return set()
+
+    return {
+        token
+        for token in re.findall(r"[A-Za-z0-9_]{3,}", focus_query.lower())
+        if token not in CONTEXT_SELECTION_STOPWORDS
+    }
+
+
+def _score_context_chunk(chunk: str, query_terms: set[str]) -> int:
+    if not query_terms:
+        return 0
+
+    chunk_terms = re.findall(r"[A-Za-z0-9_]{3,}", chunk.lower())
+    return sum(1 for term in chunk_terms if term in query_terms)
+
+
+def _select_transcript_context(
+    transcript: str,
+    max_chars: int,
+    focus_query: str | None = None,
+) -> str:
+    """Select transcript context across the whole video while preserving a fixed budget."""
+    if len(transcript) <= max_chars:
+        return transcript
+
+    chunk_chars = min(2200, max(500, max_chars // 4))
+    overlap_chars = min(250, max(80, chunk_chars // 8))
+    chunks = _chunk_text(transcript, chunk_chars, overlap_chars)
+    if not chunks:
+        return transcript[:max_chars]
+
+    chunk_budget = max(1, max_chars // (chunk_chars + 80))
+    query_terms = _context_query_terms(focus_query)
+    selected_indices: list[int] = []
+
+    if query_terms:
+        scored_indices = sorted(
+            (
+                (_score_context_chunk(chunk, query_terms), index)
+                for index, chunk in enumerate(chunks)
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )
+        selected_indices = [
+            index for score, index in scored_indices if score > 0
+        ][:chunk_budget]
+
+    if len(selected_indices) < chunk_budget:
+        for index in _sample_evenly(len(chunks), chunk_budget):
+            if index not in selected_indices:
+                selected_indices.append(index)
+            if len(selected_indices) >= chunk_budget:
+                break
+
+    selected_indices = sorted(selected_indices)
+    selected_chunks = [
+        f"[Transcript segment {index + 1}/{len(chunks)}]\n{chunks[index]}"
+        for index in selected_indices
+    ]
+    selected_context = "\n\n".join(selected_chunks)
+    return selected_context[:max_chars]
 
 
 def _get_or_build_chatbot_agent(video_url: str):
@@ -782,7 +917,12 @@ async def cross_video_query(
             continue
 
         title = _ensure_video_meta(url)["title"]
-        video_contexts.append(f"[VIDEO: {title}]\n{transcript[:10000]}")
+        selected_context = _select_transcript_context(
+            transcript,
+            max_chars=10000,
+            focus_query=request.question,
+        )
+        video_contexts.append(f"[VIDEO: {title}]\n{selected_context}")
 
     if not video_contexts:
         raise HTTPException(
@@ -825,6 +965,7 @@ async def generate_quiz(
             return cached_result
     try:
         model = _get_generative_model()
+        selected_context = _select_transcript_context(transcript, max_chars=25000)
         freshness_instruction = (
             "\nCreate a fresh set of questions with varied wording and examples. "
             f"Generation id: {request.generation_id or 'fresh'}."
@@ -833,12 +974,12 @@ async def generate_quiz(
         )
         if request.quiz_type == "mcq":
             prompt = f"""Generate exactly {request.num_questions} MCQs from this transcript.{freshness_instruction}
-Transcript: {transcript[:25000]}
+Transcript: {selected_context}
 Return ONLY valid JSON, no markdown:
 {{"questions":[{{"question":"...","options":["A) ...","B) ...","C) ...","D) ..."],"answer":"A) ...","explanation":"..."}}]}}"""
         else:
             prompt = f"""Generate exactly {request.num_questions} short-answer questions from this transcript.{freshness_instruction}
-Transcript: {transcript[:25000]}
+Transcript: {selected_context}
 Return ONLY valid JSON, no markdown:
 {{"questions":[{{"question":"...","answer":"...","explanation":"..."}}]}}"""
         response = model.generate_content(prompt)
@@ -873,8 +1014,9 @@ async def perspective_summary(
         return cached_result
     try:
         model = _get_generative_model()
+        selected_context = _select_transcript_context(transcript, max_chars=28000)
         prompt = f"""Analyze this transcript from 4 perspectives.
-Transcript: {transcript[:28000]}
+Transcript: {selected_context}
 Return ONLY valid JSON, no markdown:
 {{
   "student": {{"emoji":"🎓","title":"Student Perspective","summary":"3-5 bullet points","key_concepts":["c1","c2","c3"],"study_tip":"..."}},
@@ -914,8 +1056,9 @@ async def concept_graph(
         return cached_result
     try:
         model = _get_generative_model()
+        selected_context = _select_transcript_context(transcript, max_chars=28000)
         prompt = f"""Extract a concept dependency graph from this transcript.
-Transcript: {transcript[:28000]}
+Transcript: {selected_context}
 Return ONLY valid JSON, no markdown:
 {{"nodes":[{{"id":"snake_id","label":"Short Label","level":0,"description":"One sentence."}}],"edges":[{{"from":"id1","to":"id2","label":"prerequisite for"}}]}}
 Rules: 8-15 concepts, level 0=foundational, labels max 4 words, snake_case IDs."""

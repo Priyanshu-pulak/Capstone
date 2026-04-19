@@ -169,6 +169,40 @@ class FakeGenerativeModel:
         return FakeGenerativeResponse("Cross-video answer covering selected videos.")
 
 
+class TestTranscriptContextSelection(unittest.TestCase):
+    def test_long_transcripts_sample_later_segments_within_budget(self) -> None:
+        transcript = (
+            "INTRO_MARKER "
+            + ("early filler text " * 80)
+            + "MIDDLE_MARKER "
+            + ("middle filler text " * 80)
+            + "FINAL_MARKER closing detail."
+        )
+
+        context = app_module._select_transcript_context(transcript, max_chars=1600)
+
+        self.assertLessEqual(len(context), 1600)
+        self.assertIn("[Transcript segment", context)
+        self.assertIn("INTRO_MARKER", context)
+        self.assertIn("FINAL_MARKER", context)
+
+    def test_focus_query_prioritizes_relevant_later_context(self) -> None:
+        transcript = (
+            ("general introduction filler " * 70)
+            + "RAREKEYWORD appears in the later lesson with the important answer. "
+            + ("closing filler " * 25)
+        )
+
+        context = app_module._select_transcript_context(
+            transcript,
+            max_chars=700,
+            focus_query="Explain rarekeyword from the video",
+        )
+
+        self.assertLessEqual(len(context), 700)
+        self.assertIn("RAREKEYWORD", context)
+
+
 class TestApiSmoke(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
