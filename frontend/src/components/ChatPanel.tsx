@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import type { Message, VideoMeta, Mode } from '../App';
+import { normalizeMarkdownText } from '../markdown';
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
@@ -53,13 +54,13 @@ export default function ChatPanel({
                 <div className="w-full max-w-[85%]">
                   <div className="text-xs text-indigo-600 flex items-center gap-1 mb-1 font-medium"><Link2 className="w-3 h-3" /> Cross-video</div>
                   <div className="p-4 rounded-2xl rounded-tl-none bg-white/80 text-slate-800 border border-indigo-100 shadow-sm text-sm whitespace-pre-wrap leading-relaxed">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    <ReactMarkdown>{normalizeMarkdownText(msg.content)}</ReactMarkdown>
                   </div>
                 </div>
               ) : (
                 <div className={cn("max-w-[75%] p-4 rounded-2xl text-sm leading-relaxed",
                   msg.role === 'user' ? "bg-indigo-600 text-white rounded-tr-none" : "bg-white/80 text-slate-800 border border-slate-100 shadow-sm rounded-tl-none whitespace-pre-wrap")}>
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown>{normalizeMarkdownText(msg.content)}</ReactMarkdown>
                 </div>
               )}
             </motion.div>

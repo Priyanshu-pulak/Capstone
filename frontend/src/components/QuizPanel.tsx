@@ -13,6 +13,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { api, getApiErrorMessage } from '../api';
 import { loadFeatureState, saveFeatureState } from '../featureStorage';
+import { normalizeMarkdownText } from '../markdown';
 import type { VideoMeta } from '../App';
 
 function cn(...inputs: ClassValue[]) {
@@ -42,7 +43,7 @@ function renderQuizMarkdown(text: string, textClassName?: string) {
         ),
       }}
     >
-      {text}
+      {normalizeMarkdownText(text)}
     </ReactMarkdown>
   );
 }
