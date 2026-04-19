@@ -1,7 +1,7 @@
-from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 
+from src.config import settings
 from src.utils import fetch_transcript, split_transcript, get_video_id
 from src.vector_stores import build_qa_vector_store, build_summary_vector_store
 from src.chain.qa_chain import build_qa_chain
@@ -9,10 +9,16 @@ from src.chain.summary_chain import build_summary_chain
 from src.chain.agent import build_agent
 
 def build_chatbot_chain(video_url: str, transcript: str | None = None):
-    load_dotenv()
+    google_api_key = settings.require_google_api_key()
 
-    chat_model = ChatGoogleGenerativeAI(model="gemma-4-31b-it")
-    embedding_model = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+    chat_model = ChatGoogleGenerativeAI(
+        model="gemma-4-31b-it",
+        google_api_key=google_api_key,
+    )
+    embedding_model = GoogleGenerativeAIEmbeddings(
+        model="models/gemini-embedding-001",
+        google_api_key=google_api_key,
+    )
     str_parser = StrOutputParser()
 
     video_id = get_video_id(video_url)

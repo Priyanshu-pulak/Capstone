@@ -15,6 +15,7 @@ dependencies = [
     "youtube-transcript-api>=1.2.4",
     "fastapi[standard]>=0.115.0",
     "passlib>=1.7.4",
+    "pydantic-settings>=2.13.1",
     "python-jose[cryptography]>=3.5.0",
     "argon2-cffi>=25.1.0",
 ]

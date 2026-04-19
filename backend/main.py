@@ -4,16 +4,14 @@ from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import os
 import json
 import re
-import secrets
 from typing import Optional
 from copy import deepcopy
-from dotenv import load_dotenv
 import logging
 from datetime import datetime, timedelta, UTC
 from src.chain import build_chatbot_chain
+from src.config import settings
 
 from google import genai
 from src.utils import fetch_transcript, get_video_id
@@ -51,61 +49,13 @@ def extract_clean_answer(content: str | list[dict[str, Any]]) -> str:
     # Fallback just in case the format is completely unexpected
     return str(content)
 
-load_dotenv()
-
-APP_ENV = os.getenv("VIDQUERY_ENV", "development").strip().lower() or "development"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_HOURS = 72
-SESSION_COOKIE_NAME = "vq_access_token"
-DEFAULT_DEV_CORS_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:4173",
-    "http://127.0.0.1:4173",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-]
-WEAK_SECRET_KEY_VALUES = {
-    "",
-    "replace-this-with-a-long-random-secret",
-    "vidquery-secret-key-change-in-production",
-    "your_secret_key_here",
-}
-
-
-def _parse_cors_origins(raw_origins: str | None) -> list[str]:
-    if not raw_origins:
-        return DEFAULT_DEV_CORS_ORIGINS.copy()
-
-    parsed_origins = [
-        origin.strip().rstrip("/")
-        for origin in raw_origins.split(",")
-        if origin.strip()
-    ]
-    return parsed_origins or DEFAULT_DEV_CORS_ORIGINS.copy()
-
-
-def _resolve_secret_key() -> str:
-    configured_secret = os.getenv("SECRET_KEY", "").strip()
-    if configured_secret and configured_secret not in WEAK_SECRET_KEY_VALUES:
-        return configured_secret
-
-    if APP_ENV == "production":
-        raise RuntimeError(
-            "SECRET_KEY must be set to a strong value when VIDQUERY_ENV=production."
-        )
-
-    logger.warning(
-        "Using an ephemeral development SECRET_KEY. "
-        "Set SECRET_KEY in backend/.env to keep sessions stable across restarts."
-    )
-    return secrets.token_urlsafe(32)
-
-
-SECRET_KEY = _resolve_secret_key()
-COOKIE_SECURE = APP_ENV == "production"
-COOKIE_MAX_AGE_SECONDS = ACCESS_TOKEN_EXPIRE_HOURS * 60 * 60
-CORS_ORIGINS = _parse_cors_origins(os.getenv("CORS_ORIGINS"))
+ALGORITHM = settings.algorithm
+ACCESS_TOKEN_EXPIRE_HOURS = settings.access_token_expire_hours
+SESSION_COOKIE_NAME = settings.session_cookie_name
+SECRET_KEY = settings.secret_key
+COOKIE_SECURE = settings.cookie_secure
+COOKIE_MAX_AGE_SECONDS = settings.cookie_max_age_seconds
+CORS_ORIGINS = settings.allowed_cors_origins
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -545,12 +495,7 @@ def _get_or_build_chatbot_agent(video_url: str):
 
 
 def _get_google_api_key() -> str:
-    api_key = (os.getenv("GOOGLE_API_KEY") or "").strip()
-    if not api_key:
-        raise RuntimeError(
-            "GOOGLE_API_KEY is not configured. Set GOOGLE_API_KEY in backend/.env."
-        )
-    return api_key
+    return settings.require_google_api_key()
 
 
 def _get_genai_client():
@@ -618,7 +563,7 @@ async def health():
             "status": "ok" if db_ok else "degraded",
             "service": "VidQuery API",
             "database": "ok" if db_ok else "error",
-            "google_api_key_configured": bool(os.getenv("GOOGLE_API_KEY")),
+            "google_api_key_configured": settings.google_api_key_configured,
         },
     )
 
