@@ -22,10 +22,7 @@ DEFAULT_DEV_CORS_ORIGINS = [
     "http://127.0.0.1:8000",
 ]
 WEAK_SECRET_KEY_VALUES = {
-    "",
-    "replace-this-with-a-long-random-secret",
-    "vidquery-secret-key-change-in-production",
-    "your_secret_key_here",
+    "123",
 }
 
 

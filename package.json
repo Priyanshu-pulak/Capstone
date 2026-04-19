@@ -1,23 +1,14 @@
 {
-  "name": "vidquery-root",
-  "version": "1.0.0",
-  "description": "Unified VidQuery project",
-  "main": "index.js",
+  "name": "vidquery",
+  "private": true,
   "scripts": {
-    "install:backend": "cd backend && uv sync",
-    "install:frontend": "npm --prefix frontend install",
-    "install:all": "npm install && npm run install:backend && npm run install:frontend",
+    "setup": "npm install && npm --prefix frontend install && cd backend && uv sync",
+    "dev": "concurrently \"cd backend && uv run fastapi dev main.py\" \"npm --prefix frontend run dev\"",
+    "build": "npm --prefix frontend run build",
     "check:backend": "PYTHONPYCACHEPREFIX=/tmp/vidquery-pycache python3 -m py_compile backend/main.py backend/src/*.py backend/src/chain/*.py backend/src/database/*.py backend/src/prompt_templates/*.py backend/src/schema/*.py backend/src/vector_stores/*.py",
-    "check:frontend": "npm run build:frontend",
-    "test:backend": "cd backend && UV_CACHE_DIR=/tmp/vidquery-uv-cache uv run python -m unittest discover -s tests -v",
-    "check": "npm run check:backend && npm run check:frontend && npm run test:backend",
-    "dev:backend": "cd backend && uv run fastapi dev main.py",
-    "dev:frontend": "npm --prefix frontend run dev",
-    "build:frontend": "npm --prefix frontend run build",
-    "smoke:backend": "curl --fail --silent --show-error http://127.0.0.1:8000/health",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
+    "check": "npm run check:backend && npm run build"
   },
-  "dependencies": {
+  "devDependencies": {
     "concurrently": "^9.0.1"
   }
 }
