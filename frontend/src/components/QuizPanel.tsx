@@ -9,12 +9,12 @@ import {
   History,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import ReactMarkdown from 'react-markdown';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { api, getApiErrorMessage } from '../api';
 import { loadFeatureState, saveFeatureState } from '../featureStorage';
 import { normalizeMarkdownText } from '../markdown';
+import MarkdownText from './MarkdownText';
 import type { VideoMeta } from '../App';
 
 function cn(...inputs: ClassValue[]) {
@@ -23,29 +23,11 @@ function cn(...inputs: ClassValue[]) {
 
 function renderQuizMarkdown(text: string, textClassName?: string) {
   return (
-    <ReactMarkdown
-      components={{
-        p: ({ children }) => <span className={textClassName}>{children}</span>,
-        code: ({ children, className, ...props }) => (
-          <code
-            className={cn(
-              'rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[0.95em] text-indigo-700',
-              className,
-            )}
-            {...props}
-          >
-            {children}
-          </code>
-        ),
-        pre: ({ children }) => (
-          <pre className="overflow-x-auto rounded-xl bg-slate-900 px-3 py-2 text-sm text-slate-100">
-            {children}
-          </pre>
-        ),
-      }}
-    >
-      {normalizeMarkdownText(text)}
-    </ReactMarkdown>
+    <MarkdownText
+      text={text}
+      inlineParagraphs
+      textClassName={textClassName}
+    />
   );
 }
 

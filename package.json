@@ -3,10 +3,9 @@
   "private": true,
   "scripts": {
     "setup": "npm install && npm --prefix frontend install && cd backend && uv sync",
-    "dev": "concurrently \"cd backend && uv run fastapi dev main.py\" \"npm --prefix frontend run dev\"",
+    "dev": "concurrently --kill-others --kill-signal SIGKILL \"cd backend && uv run fastapi dev main.py\" \"npm --prefix frontend run dev\"",
     "build": "npm --prefix frontend run build",
-    "check:backend": "PYTHONPYCACHEPREFIX=/tmp/vidquery-pycache python3 -m py_compile backend/main.py backend/src/*.py backend/src/chain/*.py backend/src/database/*.py backend/src/prompt_templates/*.py backend/src/schema/*.py backend/src/vector_stores/*.py",
-    "check": "npm run check:backend && npm run build"
+    "check:backend": "npm run check:backend && npm run build"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"

@@ -5,6 +5,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { api, getApiErrorMessage } from '../api';
 import { loadFeatureState, saveFeatureState } from '../featureStorage';
+import MarkdownText from './MarkdownText';
 import type { VideoMeta } from '../App';
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
@@ -177,7 +178,9 @@ export default function ConceptMapPanel({
                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                       className="bg-white/80 rounded-2xl p-4 border border-indigo-100 shadow-md">
                       <div className="font-bold text-slate-800 mb-1">{n.label} <span className="text-xs font-normal text-indigo-500 ml-2">Level {n.level}</span></div>
-                      <p className="text-sm text-slate-600 mb-3">{n.description}</p>
+                      <div className="text-sm text-slate-600 mb-3">
+                        <MarkdownText text={n.description} />
+                      </div>
                       <div className="flex gap-6 text-xs text-slate-500">
                         {prereqs.length > 0 && <div><strong className="text-slate-700">Requires:</strong> {prereqs.join(', ')}</div>}
                         {enables.length > 0 && <div><strong className="text-slate-700">Enables:</strong> {enables.join(', ')}</div>}
@@ -194,7 +197,9 @@ export default function ConceptMapPanel({
                       className={cn("p-3 rounded-xl border cursor-pointer transition-all text-xs", hoveredNode === n.id ? "shadow-md scale-[1.02]" : "bg-white/60")}
                       style={{ borderColor: color + '40', background: hoveredNode === n.id ? color + '10' : '' }}>
                       <div className="font-semibold text-slate-800 mb-0.5">{n.label}</div>
-                      <div className="text-slate-500 text-[10px]">{n.description}</div>
+                      <div className="text-slate-500 text-[10px]">
+                        <MarkdownText text={n.description} />
+                      </div>
                     </div>
                   );
                 })}

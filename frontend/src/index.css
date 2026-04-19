@@ -30,6 +30,16 @@ body {
   width: 100%;
 }
 
+.katex {
+  font-size: 1em;
+}
+
+.katex-display {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f8fafc;
@@ -56,6 +66,7 @@ body {
 
 .premium-gradient-text {
   background: linear-gradient(to right, #6366f1, #a855f7, #ec4899);
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }

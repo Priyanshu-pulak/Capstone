@@ -12,10 +12,13 @@
     "axios": "^1.15.0",
     "clsx": "^2.1.1",
     "framer-motion": "^11.11.11",
+    "katex": "^0.16.45",
     "lucide-react": "^0.454.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-math": "^6.0.0",
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
