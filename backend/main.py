@@ -178,6 +178,14 @@ class QuizRequest(BaseModel):
         Field(default=5, ge=1, le=20, description="Number of questions to generate"),
     ]
     quiz_type: Annotated[str, Field(default="mcq", pattern="^(mcq|short)$")]
+    force_new: Annotated[
+        bool,
+        Field(default=False, description="Bypass quiz cache and generate a fresh quiz."),
+    ]
+    generation_id: Annotated[
+        str | None,
+        Field(default=None, max_length=80, description="Optional client generation nonce."),
+    ]
 
 
 class PerspectiveSummaryRequest(BaseModel):
@@ -811,23 +819,32 @@ async def generate_quiz(
     _require_user_video_access(current_user["id"], request.video_url)
     transcript = _get_or_fetch_transcript(request.video_url)
     cache_key = (request.video_url, request.num_questions, request.quiz_type)
-    cached_result = _get_cached_feature_result("quiz", cache_key)
-    if cached_result is not None:
-        return cached_result
+    if not request.force_new:
+        cached_result = _get_cached_feature_result("quiz", cache_key)
+        if cached_result is not None:
+            return cached_result
     try:
         model = _get_generative_model()
+        freshness_instruction = (
+            "\nCreate a fresh set of questions with varied wording and examples. "
+            f"Generation id: {request.generation_id or 'fresh'}."
+            if request.force_new
+            else ""
+        )
         if request.quiz_type == "mcq":
-            prompt = f"""Generate exactly {request.num_questions} MCQs from this transcript.
+            prompt = f"""Generate exactly {request.num_questions} MCQs from this transcript.{freshness_instruction}
 Transcript: {transcript[:25000]}
 Return ONLY valid JSON, no markdown:
 {{"questions":[{{"question":"...","options":["A) ...","B) ...","C) ...","D) ..."],"answer":"A) ...","explanation":"..."}}]}}"""
         else:
-            prompt = f"""Generate exactly {request.num_questions} short-answer questions from this transcript.
+            prompt = f"""Generate exactly {request.num_questions} short-answer questions from this transcript.{freshness_instruction}
 Transcript: {transcript[:25000]}
 Return ONLY valid JSON, no markdown:
 {{"questions":[{{"question":"...","answer":"...","explanation":"..."}}]}}"""
         response = model.generate_content(prompt)
         result = {"quiz": parse_model_json(response.text), "quiz_type": request.quiz_type}
+        if request.force_new:
+            return result
         return _cache_feature_result("quiz", cache_key, result)
     except HTTPException:
         raise

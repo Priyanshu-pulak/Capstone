@@ -381,6 +381,17 @@ class TestApiSmoke(unittest.TestCase):
             },
             headers=headers,
         )
+        fresh_quiz_response = self.client.post(
+            "/quiz",
+            json={
+                "video_url": video_url,
+                "num_questions": 3,
+                "quiz_type": "mcq",
+                "force_new": True,
+                "generation_id": "fresh-quiz-one",
+            },
+            headers=headers,
+        )
         first_perspectives_response = self.client.post(
             "/summary/perspectives",
             json={"video_url": video_url},
@@ -404,12 +415,14 @@ class TestApiSmoke(unittest.TestCase):
 
         self.assertEqual(first_quiz_response.status_code, 200, first_quiz_response.text)
         self.assertEqual(second_quiz_response.status_code, 200, second_quiz_response.text)
+        self.assertEqual(fresh_quiz_response.status_code, 200, fresh_quiz_response.text)
         self.assertEqual(first_perspectives_response.status_code, 200, first_perspectives_response.text)
         self.assertEqual(second_perspectives_response.status_code, 200, second_perspectives_response.text)
         self.assertEqual(first_concept_graph_response.status_code, 200, first_concept_graph_response.text)
         self.assertEqual(second_concept_graph_response.status_code, 200, second_concept_graph_response.text)
 
         quiz_json = first_quiz_response.json()
+        fresh_quiz_json = fresh_quiz_response.json()
         perspectives_json = first_perspectives_response.json()
         concept_graph_json = first_concept_graph_response.json()
         self.assertEqual(second_quiz_response.json(), quiz_json)
@@ -418,13 +431,15 @@ class TestApiSmoke(unittest.TestCase):
 
         self.assertEqual(quiz_json["quiz_type"], "mcq")
         self.assertEqual(len(quiz_json["quiz"]["questions"]), 3)
+        self.assertEqual(fresh_quiz_json["quiz_type"], "mcq")
+        self.assertEqual(len(fresh_quiz_json["quiz"]["questions"]), 3)
         self.assertIn("student", perspectives_json["perspectives"])
         self.assertIn("developer", perspectives_json["perspectives"])
         self.assertIn("business", perspectives_json["perspectives"])
         self.assertIn("beginner_expert", perspectives_json["perspectives"])
         self.assertGreaterEqual(len(concept_graph_json["graph"]["nodes"]), 2)
         self.assertEqual(len(concept_graph_json["graph"]["edges"]), 1)
-        self.assertEqual(FakeGenerativeModel.call_counts["quiz_mcq"], 1)
+        self.assertEqual(FakeGenerativeModel.call_counts["quiz_mcq"], 2)
         self.assertEqual(FakeGenerativeModel.call_counts["perspectives"], 1)
         self.assertEqual(FakeGenerativeModel.call_counts["concept_graph"], 1)
         self.assertEqual(FakeGenerativeModel.instances_created, 1)
