@@ -74,7 +74,7 @@ backend/*.db
 backend/*.db-*
 backend/*.sqlite
 backend/*.sqlite*
-
+backend/vidquery.db
 # =========================
 # IDEs & Editors
 # =========================
@@ -88,3 +88,4 @@ backend/*.sqlite*
 # =========================
 *.log
 *.bak
+

@@ -17,12 +17,14 @@ def summarize_chunks(chunks: list[Document], chat_model) -> list[Document]:
     final_summaries: list[Document] = []
     
     for i, chunk in enumerate(chunks):
+        if(i == 13):
+            break
         print(f"Summarizing chunk {i + 1}/{len(chunks)}...", flush=True)
         summary_text = summarize_chain.invoke({"context": chunk.page_content})
         final_summaries.append(Document(page_content=summary_text))
         
         if i != len(chunks) - 1:
-            time.sleep(4.1)
+            time.sleep(1)
 
     print("All chunks summarized successfully!")
     return final_summaries
